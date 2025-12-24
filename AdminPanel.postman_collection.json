@@ -1,0 +1,434 @@
+{
+  "info": {
+    "_postman_id": "admin-panel-collection",
+    "name": "Admin Panel API",
+    "description": "Complete API collection for Admin Panel",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register Admin",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/register-admin",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"newadmin@example.com\",\n  \"password\": \"SecurePass123\",\n  \"role\": \"ADMIN\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/login",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pragna@company.com\",\n  \"password\": \"Test1234\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autos",
+      "item": [
+        {
+          "name": "List Autos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/autos?search=&area_id=&status=",
+              "host": ["{{base_url}}"],
+              "path": ["autos"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "key": "area_id",
+                  "value": ""
+                },
+                {
+                  "key": "status",
+                  "value": ""
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Create Auto",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/autos",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auto_no\": \"KA01AA5555\",\n  \"owner_name\": \"John Doe\",\n  \"area_id\": \"AREA_UUID_HERE\",\n  \"notes\": \"Good condition\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Auto Details",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/autos/AUTO_ID_HERE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Update Auto",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/autos/AUTO_ID_HERE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"OUT_OF_BUSINESS\",\n  \"notes\": \"Updated note\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Auto",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/autos/AUTO_ID_HERE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Auto Assignments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/autos/AUTO_ID_HERE/assignments",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Assignments",
+      "item": [
+        {
+          "name": "Create Assignment",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/assignments",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auto_id\": \"AUTO_UUID_HERE\",\n  \"company_id\": \"COMPANY_UUID_HERE\",\n  \"days\": 7,\n  \"start_date\": \"2024-01-10\",\n  \"is_prebooked\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Bulk Assign Autos",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/assignments/bulk",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auto_ids\": [\"AUTO_ID_1\", \"AUTO_ID_2\"],\n  \"company_id\": \"COMPANY_UUID_HERE\",\n  \"days\": 7,\n  \"start_date\": \"2024-01-10\",\n  \"is_prebooked\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Active Assignments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/assignments/active",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Priority Assignments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/assignments/priority",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Update Assignment",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/assignments/ASSIGNMENT_ID_HERE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Companies",
+      "item": [
+        {
+          "name": "List Companies",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/companies",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Create Company",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/companies",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Company\",\n  \"required_autos\": 5,\n  \"area_id\": \"AREA_UUID_HERE\",\n  \"days_requested\": 7\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Company Details",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/companies/COMPANY_ID_HERE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Update Company",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/companies/COMPANY_ID_HERE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"APPROVED\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/dashboard/summary",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admins",
+      "item": [
+        {
+          "name": "List Admins",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admins",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Create Admin",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/admins",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"newadmin@example.com\",\n  \"password\": \"SecurePass123\",\n  \"role\": \"ADMIN\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Areas",
+      "item": [
+        {
+          "name": "List Areas",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/areas",
+            "header": []
+          }
+        },
+        {
+          "name": "Create Area",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/areas",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Area\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000/api"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ]
+}

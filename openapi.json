@@ -1,0 +1,361 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Admin Panel API",
+    "version": "1.0.0",
+    "description": "Auto management admin panel API"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000/api",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/auth/register-admin": {
+      "post": {
+        "summary": "Register a new admin",
+        "tags": ["Auth"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "password": { "type": "string" },
+                  "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN"] }
+                },
+                "required": ["name", "email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Admin created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "admin": { "$ref": "#/components/schemas/Admin" },
+                    "token": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Login admin",
+        "tags": ["Auth"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string" },
+                  "password": { "type": "string" }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "admin": { "$ref": "#/components/schemas/Admin" },
+                    "token": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/autos": {
+      "get": {
+        "summary": "List autos",
+        "tags": ["Autos"],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Search by auto_no or owner_name"
+          },
+          {
+            "name": "area_id",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by area"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ASSIGNED"] },
+            "description": "Filter by status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of autos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Auto" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create auto",
+        "tags": ["Autos"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "auto_no": { "type": "string" },
+                  "owner_name": { "type": "string" },
+                  "area_id": { "type": "string" },
+                  "notes": { "type": "string" }
+                },
+                "required": ["auto_no", "owner_name", "area_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Auto created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Auto" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/autos/{id}": {
+      "get": {
+        "summary": "Get auto details",
+        "tags": ["Autos"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auto details with assignments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Auto" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update auto",
+        "tags": ["Autos"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "owner_name": { "type": "string" },
+                  "status": { "type": "string" },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Auto updated" }
+        }
+      },
+      "delete": {
+        "summary": "Delete auto (soft delete)",
+        "tags": ["Autos"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Auto deleted" }
+        }
+      }
+    },
+    "/assignments/bulk": {
+      "post": {
+        "summary": "Bulk assign autos to company",
+        "tags": ["Assignments"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "auto_ids": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "company_id": { "type": "string" },
+                  "days": { "type": "integer" },
+                  "start_date": { "type": "string", "format": "date" },
+                  "is_prebooked": { "type": "boolean" }
+                },
+                "required": ["auto_ids", "company_id", "days"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Assignments created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Assignment" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/summary": {
+      "get": {
+        "summary": "Get dashboard summary",
+        "tags": ["Dashboard"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Dashboard summary with counts and lists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "in_business": { "type": "integer" },
+                        "out_of_business_2days": { "type": "integer" },
+                        "idle_slots": { "type": "integer" },
+                        "priority_2days": { "type": "integer" }
+                      }
+                    },
+                    "idle_autos": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Auto" }
+                    },
+                    "priority_autos": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Auto" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Admin": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Auto": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "auto_no": { "type": "string" },
+          "owner_name": { "type": "string" },
+          "area_id": { "type": "string", "format": "uuid" },
+          "area_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ASSIGNED"] },
+          "last_updated_at": { "type": "string", "format": "date-time" },
+          "notes": { "type": "string" },
+          "current_company": { "type": "string" },
+          "days_remaining": { "type": "integer" }
+        }
+      },
+      "Assignment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "auto_id": { "type": "string", "format": "uuid" },
+          "company_id": { "type": "string", "format": "uuid" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED", "PREBOOKED"] },
+          "company_name": { "type": "string" },
+          "days_remaining": { "type": "integer" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}
