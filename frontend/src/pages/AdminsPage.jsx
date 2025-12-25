@@ -5,6 +5,48 @@ import { Card, Button, LoadingSpinner, ErrorAlert, Badge } from '../components/U
 import { formatDate } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 
+const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div 
+      className="relative inline-block"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <button
+        className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
+        title="Actions"
+      >
+        ⋮
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+          <button
+            onClick={() => {
+              onEdit();
+              setIsOpen(false);
+            }}
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => {
+              onDelete();
+              setIsOpen(false);
+            }}
+            disabled={isLoading}
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 disabled:opacity-50"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AdminsPage = () => {
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
@@ -115,20 +157,12 @@ const AdminsPage = () => {
                       <td className="px-6 py-3 text-sm text-gray-600">
                         {formatDate(admin.created_at)}
                       </td>
-                      <td className="px-6 py-3 text-sm space-x-2">
-                        <button
-                          onClick={() => alert('Edit admin functionality coming soon')}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(admin.id)}
-                          disabled={loading}
-                          className="text-red-600 hover:text-red-800 font-medium disabled:opacity-50"
-                        >
-                          Delete
-                        </button>
+                      <td className="px-6 py-3 text-sm">
+                        <ActionMenu
+                          onEdit={() => alert('Edit admin functionality coming soon')}
+                          onDelete={() => handleDelete(admin.id)}
+                          isLoading={loading}
+                        />
                       </td>
                     </tr>
                   ))}

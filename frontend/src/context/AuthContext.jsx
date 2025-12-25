@@ -4,7 +4,10 @@ import api from '../services/api';
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [admin, setAdmin] = useState(null);
+  const [admin, setAdmin] = useState(() => {
+    const stored = localStorage.getItem('admin_data');
+    return stored ? JSON.parse(stored) : null;
+  });
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
   const [loading, setLoading] = useState(true);
 
@@ -20,6 +23,7 @@ export const AuthProvider = ({ children }) => {
           // Token is invalid, clear it
           console.warn('Token validation failed, clearing auth');
           localStorage.removeItem('auth_token');
+          localStorage.removeItem('admin_data');
           setToken(null);
           setAdmin(null);
           setLoading(false);
@@ -33,15 +37,19 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const login = useCallback((adminData, newToken) => {
+    console.log('[AUTH] Setting admin:', adminData);
+    console.log('[AUTH] Setting token:', newToken);
     setAdmin(adminData);
     setToken(newToken);
     localStorage.setItem('auth_token', newToken);
+    localStorage.setItem('admin_data', JSON.stringify(adminData));
   }, []);
 
   const logout = useCallback(() => {
     setAdmin(null);
     setToken(null);
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('admin_data');
   }, []);
 
   const value = {

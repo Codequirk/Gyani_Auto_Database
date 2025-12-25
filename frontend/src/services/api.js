@@ -6,11 +6,28 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-// Add token to requests
+// Add token to requests (handle both admin and company auth)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token');
+  const adminToken = localStorage.getItem('auth_token');
+  const companyToken = localStorage.getItem('company_auth_token');
+  
+  // Determine which token to use based on the current URL path
+  const currentPath = window.location.pathname;
+  let token = null;
+  
+  // Check if on company portal (must start with /company/)
+  if (currentPath.startsWith('/company/')) {
+    // Company portal routes - MUST use company token ONLY
+    token = companyToken;
+  } else {
+    // Admin portal routes (everything else) - MUST use admin token ONLY
+    token = adminToken;
+  }
+  
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    console.warn(`[API] No token found for ${config.url}. Path: ${currentPath}, adminToken: ${!!adminToken}, companyToken: ${!!companyToken}`);
   }
   return config;
 });
@@ -18,6 +35,11 @@ api.interceptors.request.use((config) => {
 export const authService = {
   registerAdmin: (data) => api.post('/auth/register-admin', data),
   login: (data) => api.post('/auth/login', data),
+};
+
+export const companyAuthService = {
+  register: (data) => api.post('/company-auth/register', data),
+  login: (data) => api.post('/company-auth/login', data),
 };
 
 export const adminService = {
@@ -41,6 +63,9 @@ export const autoService = {
   update: (id, data) => api.patch(`/autos/${id}`, data),
   delete: (id) => api.delete(`/autos/${id}`),
   getAssignments: (id) => api.get(`/autos/${id}/assignments`),
+  getAvailableCount: (areaId, startDate, endDate) => api.get('/autos/available/count', { 
+    params: { area_id: areaId, start_date: startDate, end_date: endDate } 
+  }),
 };
 
 export const companyService = {
@@ -61,6 +86,22 @@ export const assignmentService = {
   update: (id, data) => api.patch(`/assignments/${id}`, data),
   delete: (id) => api.delete(`/assignments/${id}`),
   deleteByAutoId: (autoId) => api.delete(`/assignments/auto/${autoId}`),
+};
+
+export const companyTicketService = {
+  create: (data) => api.post('/company-tickets/', data),
+  getByCompany: (companyId) => api.get(`/company-tickets/company/${companyId}`),
+  getPending: () => api.get('/company-tickets/admin/pending'),
+  approve: (id, data) => api.patch(`/company-tickets/admin/${id}/approve`, data),
+  reject: (id, data) => api.patch(`/company-tickets/admin/${id}/reject`, data),
+  update: (id, data) => api.patch(`/company-tickets/admin/${id}`, data),
+};
+
+export const companyPortalService = {
+  getProfile: (companyId) => api.get(`/company-portal/${companyId}/profile`),
+  updateProfile: (companyId, data) => api.patch(`/company-portal/${companyId}/profile`, data),
+  getAssignments: (companyId) => api.get(`/company-portal/${companyId}/assignments`),
+  getDashboard: (companyId) => api.get(`/company-portal/${companyId}/dashboard`),
 };
 
 export const dashboardService = {

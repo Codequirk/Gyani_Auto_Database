@@ -1,11 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useDarkMode } from '../context/DarkModeContext';
+import api from '../services/api';
 
 const Navbar = () => {
   const { admin, logout } = useAuth();
+  const { darkMode, toggleDarkMode } = useDarkMode();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Fetch pending requests count
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        const response = await api.get('/company-tickets/admin/all');
+        const pendingRequests = response.data.filter(r => r.ticket_status === 'PENDING');
+        setPendingCount(pendingRequests.length);
+      } catch (err) {
+        console.error('Failed to fetch pending requests:', err);
+      }
+    };
+
+    fetchPendingCount();
+    // Refresh count every 30 seconds
+    const interval = setInterval(fetchPendingCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -30,13 +52,37 @@ const Navbar = () => {
               <Link to="/companies" className="hover:bg-blue-700 px-3 py-2 rounded">
                 Companies
               </Link>
+              <Link to="/company-requests" className="hover:bg-blue-700 px-3 py-2 rounded">
+                Requests
+              </Link>
               <Link to="/admins" className="hover:bg-blue-700 px-3 py-2 rounded">
                 Admins
               </Link>
             </div>
           </div>
 
-          <div className="flex items-center relative">
+          <div className="flex items-center gap-3 relative">
+            <button
+              onClick={() => navigate('/company-requests')}
+              className="hover:bg-blue-700 px-3 py-2 rounded relative text-lg"
+              title="Company Requests"
+            >
+              🔔
+              {pendingCount > 0 && (
+                <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={toggleDarkMode}
+              className="hover:bg-blue-700 px-3 py-2 rounded text-lg"
+              title="Toggle dark mode"
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </button>
+
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="hover:bg-blue-700 px-3 py-2 rounded"
@@ -45,10 +91,23 @@ const Navbar = () => {
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white text-gray-900 rounded shadow-lg z-50 top-full">
+              <div className={`absolute right-0 mt-2 w-48 rounded shadow-lg z-50 top-full ${
+                darkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+              }`}>
+                <Link
+                  to="/company/login"
+                  className={`block w-full text-left px-4 py-2 text-sm ${
+                    darkMode ? 'hover:bg-gray-700 text-teal-400' : 'hover:bg-gray-100 text-teal-600'
+                  }`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  → Company Portal
+                </Link>
                 <button
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100"
+                  className={`w-full text-left px-4 py-2 border-t ${
+                    darkMode ? 'hover:bg-gray-700 border-gray-600' : 'hover:bg-gray-100'
+                  }`}
                 >
                   Logout
                 </button>

@@ -44,18 +44,11 @@ class Auto {
     for (let i = 0; i < autos.length; i++) {
       const autoObj = autos[i].toObject();
       const area = await AreaSchema.findOne({ id: autoObj.area_id });
-      if (area) autoObj.area_name = area.name;
+      if (area) {
+        autoObj.area_name = area.name;
+        autoObj.pin_code = area.pin_code;
+      }
       autos[i] = autoObj;
-    }
-
-    // Apply search filter on client side after enriching with area_name
-    if (filters.search) {
-      const searchRegex = new RegExp(filters.search, 'i');
-      autos = autos.filter(auto => 
-        searchRegex.test(auto.auto_no || '') ||
-        searchRegex.test(auto.owner_name || '') ||
-        searchRegex.test(auto.area_name || '')
-      );
     }
     
     return autos;

@@ -5,10 +5,11 @@ const companySchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true, index: true },
   name: { type: String, required: true },
   contact_person: { type: String, default: '' },
-  email: { type: String, default: '' },
+  email: { type: String, default: '', unique: true, sparse: true },
   phone_number: { type: String, default: '' },
   emails: { type: [String], default: [] },
   phone_numbers: { type: [String], default: [] },
+  password_hash: { type: String, default: null },
   required_autos: { type: Number, required: true },
   area_id: { type: String, required: true },
   days_requested: { type: Number, required: true },
@@ -16,6 +17,12 @@ const companySchema = new mongoose.Schema({
     type: String, 
     enum: ['REQUESTED', 'APPROVED', 'REJECTED', 'ACTIVE', 'INACTIVE'],
     default: 'ACTIVE',
+    index: true
+  },
+  company_status: {
+    type: String,
+    enum: ['PENDING_APPROVAL', 'ACTIVE', 'INACTIVE', 'REJECTED'],
+    default: 'PENDING_APPROVAL',
     index: true
   },
   created_by_admin_id: { type: String, required: true },

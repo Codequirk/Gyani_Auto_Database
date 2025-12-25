@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { companyService } from '../services/api';
@@ -6,15 +6,57 @@ import { Card, Button, Input, LoadingSpinner, ErrorAlert, Badge } from '../compo
 import { formatDate } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 
+const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
+        title="Actions"
+      >
+        ⋮
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+          <button
+            onClick={() => {
+              onEdit();
+              setIsOpen(false);
+            }}
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => {
+              onDelete();
+              setIsOpen(false);
+            }}
+            disabled={isLoading}
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 disabled:opacity-50"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CompaniesPage = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   
+  const debounceTimer = useRef(null);
+
   const [formState, setFormState] = useState({
     name: '',
     contact_person: '',
@@ -22,11 +64,23 @@ const CompaniesPage = () => {
     phone_numbers: [''],
   });
 
+  // Debounce search input
+  useEffect(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300); // 300ms delay
+
+    return () => clearTimeout(debounceTimer.current);
+  }, [search]);
+
   const {
     data: companies,
     loading: companiesLoading,
     refetch: refetchCompanies,
-  } = useFetch(() => companyService.list({ search, status: selectedStatus }), [search, selectedStatus]);
+  } = useFetch(() => companyService.list({ search: debouncedSearch, status: selectedStatus }), [debouncedSearch, selectedStatus]);
 
   const handleDelete = async (companyId) => {
     if (!window.confirm('Are you sure you want to delete this company?')) {
@@ -206,7 +260,7 @@ const CompaniesPage = () => {
         <Card className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input
-              placeholder="Search company name or contact"
+              placeholder="Search company name"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -228,9 +282,6 @@ const CompaniesPage = () => {
                       Name
                     </th>
                     <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Contact
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                       Email
                     </th>
                     <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
@@ -243,33 +294,18 @@ const CompaniesPage = () => {
                 </thead>
                 <tbody>
                   {companies?.map((company) => (
-                    <tr key={company.id} className="border-b border-gray-200 hover:bg-gray-50">
+                    <tr key={company.id} className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/companies/${company.id}`)}>
                       <td className="px-6 py-3 text-sm text-gray-900">{company.name}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{company.contact_person}</td>
                       <td className="px-6 py-3 text-sm text-gray-600">{company.email}</td>
                       <td className="px-6 py-3 text-sm text-gray-600">
                         {formatDate(company.created_at)}
                       </td>
-                      <td className="px-6 py-3 text-sm space-x-2">
-                        <button
-                          onClick={() => navigate(`/companies/${company.id}`)}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => alert('Edit company functionality coming soon')}
-                          className="text-green-600 hover:text-green-800 font-medium"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(company.id)}
-                          disabled={loading}
-                          className="text-red-600 hover:text-red-800 font-medium disabled:opacity-50"
-                        >
-                          Delete
-                        </button>
+                      <td className="px-6 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
+                        <ActionMenu
+                          onEdit={() => alert('Edit company functionality coming soon')}
+                          onDelete={() => handleDelete(company.id)}
+                          isLoading={loading}
+                        />
                       </td>
                     </tr>
                   ))}

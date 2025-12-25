@@ -8,8 +8,13 @@ class Company {
     return company ? company.toObject() : null;
   }
 
+  static async findByEmail(email) {
+    const company = await CompanySchema.findOne({ email, deleted_at: null });
+    return company ? company.toObject() : null;
+  }
+
   static async findAll(filters = {}) {
-    let query = { deleted_at: null };
+    let query = { deleted_at: null, company_status: { $ne: 'PENDING_APPROVAL' } };
 
     if (filters.status) {
       query.status = filters.status;

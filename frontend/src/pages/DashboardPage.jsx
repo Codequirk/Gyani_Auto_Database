@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardService, assignmentService, autoService } from '../services/api';
 import { Card, Button, LoadingSpinner, Badge } from '../components/UI';
@@ -7,6 +8,7 @@ import Navbar from '../components/Navbar';
 
 const DashboardPage = () => {
   const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [idleAutos, setIdleAutos] = useState([]);
   const [priorityAutos, setPriorityAutos] = useState([]);
@@ -24,21 +26,18 @@ const DashboardPage = () => {
         setPriorityAutos(summaryRes.data.priority_autos);
 
         if (expandedList) {
-          const autosRes = await autoService.list({});
-          const autosWithDays = await Promise.all(autosRes.data.map(async (auto) => {
-            try {
-              const assignmentsRes = await autoService.getAssignments(auto.id);
-              const activeAssignment = assignmentsRes.data.find(a => a.status === 'ACTIVE');
-              return {
-                ...auto,
-                days_remaining: activeAssignment ? computeDaysRemaining(activeAssignment.end_date) : null,
-                current_company: activeAssignment?.company_name,
-              };
-            } catch {
-              return auto;
-            }
-          }));
-          setAllAutos(autosWithDays);
+          try {
+            const autosRes = await autoService.list({});
+            const autosWithDays = autosRes.data.map((auto) => ({
+              ...auto,
+              days_remaining: auto.days_remaining || null,
+              current_company: auto.current_company || null,
+            }));
+            setAllAutos(autosWithDays);
+          } catch (autosErr) {
+            console.error('Error fetching all autos:', autosErr);
+            setError('Failed to load all autos');
+          }
         }
 
         setError('');
@@ -121,12 +120,11 @@ const DashboardPage = () => {
                     <th className="px-4 py-2 text-left">Start Date</th>
                     <th className="px-4 py-2 text-left">End Date</th>
                     <th className="px-4 py-2 text-left">Days Left</th>
-                    <th className="px-4 py-2 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {priorityAutos.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50">
+                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.company_name || '-'}</td>
@@ -136,11 +134,6 @@ const DashboardPage = () => {
                         <Badge className={auto.days_remaining <= 2 ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}>
                           {auto.days_remaining} days
                         </Badge>
-                      </td>
-                      <td className="px-4 py-2">
-                        <a href={`/autos/${auto.id}`} className="text-blue-600 hover:underline">
-                          View
-                        </a>
                       </td>
                     </tr>
                   ))}
@@ -164,21 +157,15 @@ const DashboardPage = () => {
                     <th className="px-4 py-2 text-left">Owner</th>
                     <th className="px-4 py-2 text-left">Area</th>
                     <th className="px-4 py-2 text-left">Last Updated</th>
-                    <th className="px-4 py-2 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {idleAutos.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50">
+                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
                       <td className="px-4 py-2">{formatDate(auto.last_updated_at)}</td>
-                      <td className="px-4 py-2">
-                        <a href={`/autos/${auto.id}`} className="text-blue-600 hover:underline">
-                          View
-                        </a>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -212,12 +199,11 @@ const DashboardPage = () => {
                     <th className="px-4 py-2 text-left">Status</th>
                     <th className="px-4 py-2 text-left">Company</th>
                     <th className="px-4 py-2 text-left">Days Left</th>
-                    <th className="px-4 py-2 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {allAutos.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50">
+                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
@@ -229,11 +215,6 @@ const DashboardPage = () => {
                       <td className="px-4 py-2">{auto.current_company || '-'}</td>
                       <td className="px-4 py-2">
                         {auto.days_remaining !== null ? `${auto.days_remaining} days` : '-'}
-                      </td>
-                      <td className="px-4 py-2">
-                        <a href={`/autos/${auto.id}`} className="text-blue-600 hover:underline">
-                          View
-                        </a>
                       </td>
                     </tr>
                   ))}

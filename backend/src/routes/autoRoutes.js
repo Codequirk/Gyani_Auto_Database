@@ -4,6 +4,7 @@ const autoController = require('../controllers/autoController');
 const authMiddleware = require('../middleware/auth');
 
 router.get('/', autoController.listAutos);
+router.get('/available/count', autoController.getAvailableAutosCount);
 router.get('/:id', autoController.getAuto);
 router.get('/:id/assignments', autoController.getAutoAssignments);
 

@@ -7,6 +7,45 @@ import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/
 import Navbar from '../components/Navbar';
 import AssignmentCalendar from '../components/AssignmentCalendar';
 
+const AssignmentActionMenu = ({ assignment, onEdit, onDelete, isLoading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
+        title="Actions"
+      >
+        ⋮
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+          <button
+            onClick={() => {
+              onEdit(assignment);
+              setIsOpen(false);
+            }}
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => {
+              onDelete(assignment);
+              setIsOpen(false);
+            }}
+            disabled={isLoading}
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 disabled:opacity-50"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AutoDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -327,21 +366,13 @@ const AutoDetailPage = () => {
                             {assignment.status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-2">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleEditAssignment(assignment)}
-                              className="text-blue-600 hover:underline text-sm font-medium"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteAssignment(assignment)}
-                              className="text-red-600 hover:underline text-sm font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                        <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                          <AssignmentActionMenu
+                            assignment={assignment}
+                            onEdit={handleEditAssignment}
+                            onDelete={handleDeleteAssignment}
+                            isLoading={editLoading}
+                          />
                         </td>
                       </tr>
                     ))}

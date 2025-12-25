@@ -27,7 +27,7 @@ exports.listAutos = async (req, res, next) => {
     const { search, area_id, status } = req.query;
     const filters = {};
 
-    if (search) filters.search = search;
+    // Don't pass search to Auto.findAll since we need to filter AFTER enriching with company name
     if (area_id) filters.area_id = area_id;
     if (status) filters.status = status;
 
@@ -100,6 +100,18 @@ exports.listAutos = async (req, res, next) => {
           assignments: allAssignments, // Include all assignments for frontend to check availability
         });
       }
+    }
+
+    // Apply search filter AFTER enriching with company name
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      expandedAutos = expandedAutos.filter(auto =>
+        searchRegex.test(auto.auto_no || '') ||
+        searchRegex.test(auto.owner_name || '') ||
+        searchRegex.test(auto.area_name || '') ||
+        searchRegex.test(auto.pin_code || '') ||
+        searchRegex.test(auto.current_company || '')
+      );
     }
 
     res.json(expandedAutos);
@@ -237,6 +249,66 @@ exports.getAutoAssignments = async (req, res, next) => {
     }));
 
     res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get count of available autos in an area for a given date range
+ * Query params: area_id, start_date, end_date (all required)
+ */
+exports.getAvailableAutosCount = async (req, res, next) => {
+  try {
+    const { area_id, start_date, end_date } = req.query;
+
+    if (!area_id || !start_date || !end_date) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: area_id, start_date, end_date' 
+      });
+    }
+
+    // Parse dates
+    const checkStartDate = new Date(start_date);
+    const checkEndDate = new Date(end_date);
+    
+    checkStartDate.setHours(0, 0, 0, 0);
+    checkEndDate.setHours(0, 0, 0, 0);
+
+    // Get all autos in the area
+    const autos = await Auto.findAll({ area_id });
+
+    // Filter autos that don't have assignments during the requested date range
+    let availableCount = 0;
+
+    for (const auto of autos) {
+      const assignments = await Assignment.findByAutoId(auto.id);
+      
+      // Check if auto has any active/prebooked assignments overlapping with requested dates
+      const hasConflict = assignments.some(assignment => {
+        if (assignment.status !== 'ACTIVE' && assignment.status !== 'PREBOOKED') {
+          return false; // Ignore completed assignments
+        }
+
+        const assignmentStart = new Date(assignment.start_date);
+        const assignmentEnd = new Date(assignment.end_date);
+        assignmentStart.setHours(0, 0, 0, 0);
+        assignmentEnd.setHours(0, 0, 0, 0);
+
+        // Check if date ranges overlap
+        return !(checkEndDate < assignmentStart || checkStartDate > assignmentEnd);
+      });
+
+      if (!hasConflict) {
+        availableCount++;
+      }
+    }
+
+    res.json({ 
+      available_count: availableCount,
+      total_count: autos.length,
+      area_id 
+    });
   } catch (error) {
     next(error);
   }

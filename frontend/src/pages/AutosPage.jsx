@@ -7,6 +7,45 @@ import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/
 import { validateAssignmentDates } from '../utils/assignmentValidation';
 import Navbar from '../components/Navbar';
 
+const AutoActionMenu = ({ auto, onEdit, onDelete, isLoading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
+        title="Actions"
+      >
+        ⋮
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+          <button
+            onClick={() => {
+              onEdit(auto);
+              setIsOpen(false);
+            }}
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => {
+              onDelete(auto);
+              setIsOpen(false);
+            }}
+            disabled={isLoading}
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 disabled:opacity-50"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AutosPage = () => {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -39,6 +78,11 @@ const AutosPage = () => {
   const [showAddAreaModal, setShowAddAreaModal] = useState(false);
   const [newArea, setNewArea] = useState({ name: '', pin_code: '' });
   const [loadingArea, setLoadingArea] = useState(false);
+  const [selectedAutoForEdit, setSelectedAutoForEdit] = useState(null);
+  const [showAutoEditModal, setShowAutoEditModal] = useState(false);
+  const [autoEditData, setAutoEditData] = useState({ auto_no: '', owner_name: '', notes: '' });
+  const [autoEditLoading, setAutoEditLoading] = useState(false);
+  const [autoEditError, setAutoEditError] = useState('');
   const navigate = useNavigate();
 
   // Debounce search input
@@ -563,6 +607,62 @@ const AutosPage = () => {
     }
   };
 
+  const handleEditAuto = (auto) => {
+    setSelectedAutoForEdit(auto);
+    setAutoEditData({
+      auto_no: auto.auto_no,
+      owner_name: auto.owner_name,
+      notes: auto.notes || ''
+    });
+    setShowAutoEditModal(true);
+    setAutoEditError('');
+  };
+
+  const handleUpdateAuto = async (e) => {
+    e.preventDefault();
+    if (!autoEditData.auto_no || !autoEditData.owner_name) {
+      setAutoEditError('Auto No and Owner Name are required');
+      return;
+    }
+
+    setAutoEditLoading(true);
+    setAutoEditError('');
+    try {
+      await autoService.update(selectedAutoForEdit.id, {
+        auto_no: autoEditData.auto_no,
+        owner_name: autoEditData.owner_name,
+        notes: autoEditData.notes
+      });
+      setSuccess('Auto updated successfully');
+      setShowAutoEditModal(false);
+      setSelectedAutoForEdit(null);
+      await refetchAutos();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setAutoEditError(err.response?.data?.error || 'Failed to update auto');
+    } finally {
+      setAutoEditLoading(false);
+    }
+  };
+
+  const handleDeleteAuto = async (auto) => {
+    if (!window.confirm(`Are you sure you want to delete auto ${auto.auto_no}? This cannot be undone.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await autoService.delete(auto.id);
+      setSuccess('Auto deleted successfully');
+      await refetchAutos();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete auto');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (autosLoading) return <LoadingSpinner />;
 
   return (
@@ -589,7 +689,7 @@ const AutosPage = () => {
         <Card className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <Input
-              placeholder="Search by company, auto_no, owner name, area, or pin code"
+              placeholder="Search by auto number, owner name, company, area name, or area pin code"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -711,8 +811,8 @@ const AutosPage = () => {
               </thead>
               <tbody>
                 {autos?.map((auto) => (
-                  <tr key={auto.id} className="border-t hover:bg-gray-50">
-                    <td className="px-4 py-2">
+                  <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                    <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedAutos.has(auto.id)}
@@ -729,10 +829,13 @@ const AutosPage = () => {
                     <td className="px-4 py-2">
                       {auto.days_remaining !== null ? `${auto.days_remaining} days` : '-'}
                     </td>
-                    <td className="px-4 py-2">
-                      <a href={`/autos/${auto.id}`} className="text-blue-600 hover:underline text-sm">
-                        View
-                      </a>
+                    <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                      <AutoActionMenu
+                        auto={auto}
+                        onEdit={handleEditAuto}
+                        onDelete={handleDeleteAuto}
+                        isLoading={autoEditLoading}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -1257,6 +1360,83 @@ const AutosPage = () => {
               </Button>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Edit Auto Modal */}
+      <Modal
+        isOpen={showAutoEditModal}
+        onClose={() => {
+          setShowAutoEditModal(false);
+          setSelectedAutoForEdit(null);
+          setAutoEditError('');
+        }}
+        title={`Edit Auto - ${selectedAutoForEdit?.auto_no || ''}`}
+      >
+        {selectedAutoForEdit && (
+          <form onSubmit={handleUpdateAuto} className="space-y-4">
+            {autoEditError && <ErrorAlert message={autoEditError} />}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Auto No *
+              </label>
+              <input
+                type="text"
+                value={autoEditData.auto_no}
+                onChange={(e) => setAutoEditData({ ...autoEditData, auto_no: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter auto number"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Owner Name *
+              </label>
+              <input
+                type="text"
+                value={autoEditData.owner_name}
+                onChange={(e) => setAutoEditData({ ...autoEditData, owner_name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter owner name"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes
+              </label>
+              <textarea
+                value={autoEditData.notes}
+                onChange={(e) => setAutoEditData({ ...autoEditData, notes: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter notes (optional)"
+                rows="3"
+              />
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <Button
+                type="submit"
+                disabled={autoEditLoading}
+                className="flex-1"
+              >
+                {autoEditLoading ? 'Updating...' : 'Update Auto'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setShowAutoEditModal(false);
+                  setSelectedAutoForEdit(null);
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
         )}
       </Modal>
 
