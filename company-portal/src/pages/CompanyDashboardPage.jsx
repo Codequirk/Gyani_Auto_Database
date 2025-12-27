@@ -247,7 +247,7 @@ const CompanyDashboardPage = () => {
               onClick={() => setShowCalendarModal(true)}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              📅 View Calendar
+              📅 Calendar
             </Button>
             <Button onClick={() => setShowTicketModal(true)} variant="primary">
               + Raise New Request

@@ -260,7 +260,7 @@ const AutoDetailPage = () => {
             onClick={() => setShowCalendar(!showCalendar)}
             className="px-4 py-2"
           >
-            📅 {showCalendar ? 'Hide' : 'Show'} Calendar
+            📅 {showCalendar ? 'Hide' : ''} Calendar
           </Button>
         </div>
 

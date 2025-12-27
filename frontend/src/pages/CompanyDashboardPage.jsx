@@ -362,7 +362,7 @@ const CompanyDashboardPage = () => {
                 onClick={() => setShowCalendarModal(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-sm"
               >
-                📅 View Calendar
+                📅 Calendar
               </Button>
             </div>
             <div className="overflow-x-auto">
