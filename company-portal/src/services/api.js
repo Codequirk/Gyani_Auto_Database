@@ -2,6 +2,13 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+console.log('[API] Initialized with API_URL:', API_URL);
+console.log('[API] Environment variables:', {
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  MODE: import.meta.env.MODE,
+  DEV: import.meta.env.DEV,
+});
+
 const api = axios.create({
   baseURL: API_URL,
 });
@@ -22,10 +29,31 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   } else {
-    console.warn(`[API] No token found for ${config.url}. Path: ${currentPath}, adminToken: ${!!adminToken}, companyToken: ${!!companyToken}`);
+    console.warn(`[API] No token found for ${config.url}. adminToken: ${!!adminToken}, companyToken: ${!!companyToken}`);
   }
+  console.log(`[API] ${config.method.toUpperCase()} ${config.url}`);
   return config;
 });
+
+// Add response error interceptor for debugging
+api.interceptors.response.use(
+  (response) => {
+    console.log(`[API] Response from ${response.config.url}:`, response.status);
+    return response;
+  },
+  (error) => {
+    const errorDetails = {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message,
+      url: error.config?.url
+    };
+    console.error(`[API] Error from ${error.config?.url}:`, errorDetails);
+    console.error(`[API] Error details (JSON):`, JSON.stringify(errorDetails, null, 2));
+    return Promise.reject(error);
+  }
+);
 
 export const authService = {
   registerAdmin: (data) => api.post('/auth/register-admin', data),

@@ -6,6 +6,7 @@ import { Card, Button, Input, Modal, LoadingSpinner, Badge, ErrorAlert } from '.
 import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import { validateAssignmentDates } from '../utils/assignmentValidation';
 import Navbar from '../components/Navbar';
+import CompanyPortalCalendar from '../components/CompanyPortalCalendar';
 
 const AutoActionMenu = ({ auto, onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -118,7 +119,7 @@ const AutosPage = () => {
   const calculateEndDate = (startDate, days) => {
     const start = new Date(startDate);
     const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(days));
+    end.setDate(end.getDate() + parseInt(days) - 1);
     return end;
   };
 
@@ -242,7 +243,7 @@ const AutosPage = () => {
     try {
       const startDate = wizardData.start_date ? new Date(wizardData.start_date) : new Date();
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + parseInt(wizardData.days));
+      endDate.setDate(endDate.getDate() + parseInt(wizardData.days) - 1);
 
       // Validate each auto before submitting
       const autosToAssign = availableAutosInDateRange.filter(auto => 
@@ -302,7 +303,7 @@ const AutosPage = () => {
     try {
       const startDate = assignData.start_date ? new Date(assignData.start_date) : new Date();
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + parseInt(assignData.days));
+      endDate.setDate(endDate.getDate() + parseInt(assignData.days) - 1);
 
       // Validate each selected auto before submitting
       const autosToAssign = autos.filter(auto => selectedAutos.has(auto.id));
@@ -393,7 +394,7 @@ const AutosPage = () => {
       // Check for date overlaps with new dates
       const newStartDate = new Date(bulkEditData.start_date);
       const newEndDate = new Date(newStartDate);
-      newEndDate.setDate(newEndDate.getDate() + parseInt(bulkEditData.days));
+      newEndDate.setDate(newEndDate.getDate() + parseInt(bulkEditData.days) - 1);
 
       const dateOverlaps = [];
       for (const range of dateRanges) {
@@ -463,7 +464,7 @@ const AutosPage = () => {
       const companyId = bulkEditOverlapWarning ? bulkEditOverlapWarning.newCompanyId : bulkEditData.company_id;
 
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + parseInt(days));
+      endDate.setDate(endDate.getDate() + parseInt(days) - 1);
 
       // Call bulk update endpoint
       await assignmentService.bulkUpdate({
@@ -577,7 +578,7 @@ const AutosPage = () => {
     try {
       const startDate = new Date(managementEditData.start_date);
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + parseInt(managementEditData.days));
+      endDate.setDate(endDate.getDate() + parseInt(managementEditData.days) - 1);
 
       // First, delete all current assignments
       await assignmentService.deleteByAutoId(selectedAutoForManagement.id);
@@ -847,6 +848,17 @@ const AutosPage = () => {
             <p className="text-center py-8 text-gray-600">No autos found</p>
           )}
         </Card>
+
+        {/* Calendar Section - Shows all assignments */}
+        {autos && autos.length > 0 && (
+          <Card className="mt-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Assignment Calendar</h2>
+            <CompanyPortalCalendar
+              assignments={autos.flatMap(auto => auto.assignments || [])}
+              areas={areas}
+            />
+          </Card>
+        )}
       </div>
 
       {/* Assignment Wizard Modal */}

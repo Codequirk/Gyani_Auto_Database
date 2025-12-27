@@ -81,7 +81,28 @@ const CompanyRequestsPage = () => {
   const handleApprove = async () => {
     if (!selectedRequest) return;
     
-    // Load available autos and get suggestions
+    // If company requested 0 autos, directly approve without auto assignment
+    if (selectedRequest.autos_required === 0) {
+      setActionLoading(true);
+      try {
+        await api.patch(`/company-tickets/admin/${selectedRequest.id}/approve`, {
+          admin_id: admin?.id || 'system',
+          auto_ids: []
+        });
+        alert('Request approved (no autos assigned as requested)');
+        setShowDetailsModal(false);
+        setSelectedRequest(null);
+        fetchRequests();
+      } catch (err) {
+        console.error('[FRONTEND] Approval error:', err);
+        alert(err.response?.data?.error || 'Failed to approve request');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+    
+    // Load available autos and get suggestions for non-zero auto requests
     setLoadingAutos(true);
     try {
       // Get all autos in the area
@@ -116,8 +137,9 @@ const CompanyRequestsPage = () => {
   };
 
   const handleAssignAutos = async () => {
-    if (selectedAutos.size === 0) {
-      alert('Please select at least one auto');
+    // Allow zero autos only if the company requested zero autos
+    if (selectedAutos.size === 0 && selectedRequest.autos_required > 0) {
+      alert(`Please select at least one auto (company requested ${selectedRequest.autos_required} auto(s))`);
       return;
     }
 
@@ -140,7 +162,10 @@ const CompanyRequestsPage = () => {
       });
       
       console.log('[FRONTEND] Assignment response:', response.data);
-      alert(`Request approved and ${selectedAutos.size} auto(s) assigned!`);
+      const message = selectedAutos.size > 0 
+        ? `Request approved and ${selectedAutos.size} auto(s) assigned!`
+        : 'Request approved (no autos assigned as requested)';
+      alert(message);
       setShowAutoAssignmentModal(false);
       setShowDetailsModal(false);
       setSelectedRequest(null);
@@ -160,7 +185,8 @@ const CompanyRequestsPage = () => {
     if (newSelected.has(autoId)) {
       newSelected.delete(autoId);
     } else {
-      if (newSelected.size < selectedRequest.autos_required) {
+      // Allow selection if autos_required is 0 (unlimited) or if we haven't reached the limit
+      if (selectedRequest.autos_required === 0 || newSelected.size < selectedRequest.autos_required) {
         newSelected.add(autoId);
       } else {
         alert(`You can only select ${selectedRequest.autos_required} autos`);
@@ -402,7 +428,7 @@ const CompanyRequestsPage = () => {
                   disabled={actionLoading || loadingAutos}
                   className="flex-1"
                 >
-                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Approve & Assign'}
+                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Approve'}
                 </Button>
                 <Button
                   onClick={() => setShowApprovalModal(!showApprovalModal)}
@@ -446,7 +472,7 @@ const CompanyRequestsPage = () => {
           setSelectedAutos(new Set());
           setAvailableAutos([]);
         }}
-        title={`Select ${selectedRequest?.autos_required} Auto(s) to Assign`}
+        title={selectedRequest?.autos_required === 0 ? 'Assign Autos (Optional)' : `Select ${selectedRequest?.autos_required} Auto(s) to Assign`}
       >
         {selectedRequest && (
           <div className="space-y-4">
@@ -471,7 +497,7 @@ const CompanyRequestsPage = () => {
             </div>
 
             {/* Selected Autos - At Top */}
-            {selectedAutos.size > 0 && (
+            {selectedRequest?.autos_required > 0 && selectedAutos.size > 0 && (
               <div>
                 <p className="font-semibold text-gray-900 mb-3">✓ Selected Autos ({selectedAutos.size}):</p>
                 <div className="space-y-2 border border-green-200 bg-green-50 rounded p-3 mb-4">
@@ -520,6 +546,7 @@ const CompanyRequestsPage = () => {
             )}
 
             {/* All Other Available Autos */}
+            {selectedRequest?.autos_required > 0 && (
             <div>
               <p className="font-semibold text-gray-900 mb-3">Available Autos:</p>
               
@@ -574,16 +601,17 @@ const CompanyRequestsPage = () => {
                 </div>
               )}
             </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3">
               <Button
                 onClick={handleAssignAutos}
                 variant="success"
-                disabled={selectedAutos.size === 0 || actionLoading}
+                disabled={selectedRequest?.autos_required > 0 && selectedAutos.size === 0 || actionLoading}
                 className="flex-1"
               >
-                {actionLoading ? 'Assigning...' : `Confirm Assignment (${selectedAutos.size}/${selectedRequest.autos_required})`}
+                {actionLoading ? 'Confirming...' : selectedRequest?.autos_required === 0 ? 'Confirm Approval' : `Confirm Assignment (${selectedAutos.size}/${selectedRequest?.autos_required})`}
               </Button>
               <Button
                 onClick={() => {

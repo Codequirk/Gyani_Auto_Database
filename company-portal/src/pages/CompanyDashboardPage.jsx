@@ -244,9 +244,17 @@ const CompanyDashboardPage = () => {
             <h1 className="text-3xl font-bold text-gray-900">{company.name}</h1>
             <p className="text-gray-600">Company Portal</p>
           </div>
-          <Button onClick={() => setShowTicketModal(true)} variant="primary">
-            + Raise New Request
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              onClick={() => setShowCalendarModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              📅 View Calendar
+            </Button>
+            <Button onClick={() => setShowTicketModal(true)} variant="primary">
+              + Raise New Request
+            </Button>
+          </div>
         </div>
 
         {error && <ErrorAlert message={error} />}
@@ -416,14 +424,24 @@ const CompanyDashboardPage = () => {
 
         {/* No Assignments Message */}
         {dashboard && dashboard.active_assignments.length === 0 && dashboard.prebooked_assignments.length === 0 && (
-          <Card>
-            <div className="text-center py-12">
-              <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>
-              <Button onClick={() => setShowTicketModal(true)}>
-                Create Your First Request
-              </Button>
-            </div>
-          </Card>
+          <>
+            <Card>
+              <div className="text-center py-12">
+                <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>
+              </div>
+            </Card>
+
+            {/* Calendar View for No Assignments */}
+            <Card>
+              <div className="mb-4">
+                <h2 className="text-xl font-bold text-gray-900 mb-4">Calendar View</h2>
+              </div>
+              <CompanyPortalCalendar
+                assignments={[]}
+                areas={areas}
+              />
+            </Card>
+          </>
         )}
       </div>
 

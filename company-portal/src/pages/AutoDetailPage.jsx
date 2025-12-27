@@ -141,7 +141,7 @@ const AutoDetailPage = () => {
     try {
       const startDate = new Date(editFormData.start_date);
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + parseInt(editFormData.days));
+      endDate.setDate(endDate.getDate() + parseInt(editFormData.days) - 1);
       const endDateStr = endDate.toISOString().split('T')[0];
 
       // Check for overlapping assignments

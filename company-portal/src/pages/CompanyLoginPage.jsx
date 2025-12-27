@@ -48,15 +48,36 @@ const CompanyLoginPage = () => {
     setLoading(true);
 
     try {
+      console.log('[LOGIN] Attempting login with email:', email);
+      console.log('[LOGIN] Password length:', password.length);
       const response = await api.post('/company-auth/login', { email, password });
-      login(response.data.company, response.data.token);
+      console.log('[LOGIN] Login successful, response:', response.data);
       
-      // Wait a moment for state to update before navigating
+      // Call login to update the auth context
+      await login(response.data.company, response.data.token);
+      console.log('[LOGIN] Auth context updated, navigating to dashboard');
+      
+      // Navigate to dashboard after a short delay to ensure state is updated
       setTimeout(() => {
+        console.log('[LOGIN] Navigating to dashboard');
         navigate('/dashboard');
-      }, 100);
+      }, 300);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      console.error('[LOGIN] Login error full object:', err);
+      console.error('[LOGIN] Login error response:', err.response);
+      console.error('[LOGIN] Login error data:', err.response?.data);
+      console.error('[LOGIN] Login error details:', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        error: err.response?.data?.error,
+        message: err.message,
+        url: err.config?.url,
+        method: err.config?.method,
+        data: err.config?.data
+      });
+      const errorMessage = err.response?.data?.error || err.message || 'Login failed';
+      console.error('[LOGIN] Setting error:', errorMessage);
+      setError(errorMessage);
       setLoading(false);
     }
   };

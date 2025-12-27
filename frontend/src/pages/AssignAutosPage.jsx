@@ -63,12 +63,13 @@ const AssignAutosPage = () => {
   };
 
   const handleAssign = async () => {
-    if (selectedAutos.size === 0) {
-      setError('Please select at least one auto');
+    // Allow zero autos only if the ticket requested zero autos
+    if (selectedAutos.size === 0 && ticket.autos_required > 0) {
+      setError(`Please select at least one auto (ticket requires ${ticket.autos_required} auto(s))`);
       return;
     }
 
-    if (selectedAutos.size > ticket.autos_required) {
+    if (selectedAutos.size > ticket.autos_required && ticket.autos_required > 0) {
       setError(`You can only select ${ticket.autos_required} autos but selected ${selectedAutos.size}`);
       return;
     }
@@ -83,7 +84,10 @@ const AssignAutosPage = () => {
         admin_id: 'current_admin_id'
       });
       
-      setSuccess(`Successfully assigned ${selectedAutos.size} autos to the company!`);
+      const message = selectedAutos.size > 0 
+        ? `Successfully assigned ${selectedAutos.size} autos to the company!`
+        : 'Ticket processed (no autos assigned as requested)';
+      setSuccess(message);
       
       setTimeout(() => {
         navigate('/admin/requests');

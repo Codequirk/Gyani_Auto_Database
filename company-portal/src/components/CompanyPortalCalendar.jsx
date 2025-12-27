@@ -94,9 +94,18 @@ const CompanyPortalCalendar = ({ assignments = [], areas = [] }) => {
       // Find which autos are booked on this date
       const autosOnDate = areaAssignments
         .filter(a => {
+          // Parse dates and set to midnight for consistent comparison
           const assignStart = new Date(a.start_date);
+          assignStart.setHours(0, 0, 0, 0);
+          
           const assignEnd = new Date(a.end_date);
-          return isWithinInterval(date, { start: assignStart, end: assignEnd });
+          assignEnd.setHours(23, 59, 59, 999);
+          
+          // Create a date at midnight for comparison
+          const checkDate = new Date(date);
+          checkDate.setHours(0, 0, 0, 0);
+          
+          return isWithinInterval(checkDate, { start: assignStart, end: assignEnd });
         })
         .map(a => ({ auto_no: a.auto_no, owner_name: a.owner_name }));
 

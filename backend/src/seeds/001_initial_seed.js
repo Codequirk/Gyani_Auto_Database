@@ -205,6 +205,7 @@ const seedData = async () => {
         contact_person: 'Rajesh Kumar',
         email: 'rajesh@foodies.com',
         phone_number: '9876543210',
+        password: 'Company123',
         required: 5,
         area: 'Koramangala',
         days: 7,
@@ -215,6 +216,7 @@ const seedData = async () => {
         contact_person: 'Priya Sharma',
         email: 'priya@deliverit.com',
         phone_number: '9988776655',
+        password: 'Company123',
         required: 3,
         area: 'Indiranagar',
         days: 2,
@@ -225,6 +227,7 @@ const seedData = async () => {
     for (const company of companies) {
       const id = uuidv4();
       companyIds[company.name] = id;
+      const hashedCompanyPassword = await bcrypt.hash(company.password, 10);
       const companyDoc = new CompanySchema({
         _id: id,
         id,
@@ -232,10 +235,12 @@ const seedData = async () => {
         contact_person: company.contact_person,
         email: company.email,
         phone_number: company.phone_number,
+        password_hash: hashedCompanyPassword,
         required_autos: company.required,
         area_id: areaIds[company.area],
         days_requested: company.days,
         status: company.status,
+        company_status: 'ACTIVE',
         created_by_admin_id: admin1Id,
         created_at: new Date(),
         updated_at: new Date(),
@@ -276,10 +281,16 @@ const seedData = async () => {
     console.log('✓ Assignments seeded (1 active with 1 day remaining)');
 
     console.log('\n✅ Seed completed successfully!');
-    console.log('\n📋 Demo Credentials:');
+    console.log('\n📋 Admin Credentials:');
     console.log('   Email: pragna@company.com');
     console.log('   Password: Test1234');
     console.log('   Role: SUPER_ADMIN');
+    console.log('\n📋 Company Portal Credentials:');
+    console.log('   Email: rajesh@foodies.com');
+    console.log('   Password: Company123');
+    console.log('   OR');
+    console.log('   Email: priya@deliverit.com');
+    console.log('   Password: Company123');
   } catch (error) {
     console.error('❌ Seed failed:', error);
     process.exit(1);
