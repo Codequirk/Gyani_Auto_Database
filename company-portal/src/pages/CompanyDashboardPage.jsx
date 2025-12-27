@@ -580,14 +580,14 @@ const CompanyDashboardPage = () => {
             </div>
 
             <div className="p-6">
-              {dashboard && dashboard.prebooked_assignments.length > 0 ? (
+              {dashboard && (dashboard.active_assignments.length > 0 || dashboard.prebooked_assignments.length > 0) ? (
                 <CompanyPortalCalendar
-                  assignments={dashboard.prebooked_assignments}
+                  assignments={[...dashboard.active_assignments, ...dashboard.prebooked_assignments]}
                   areas={areas}
                 />
               ) : (
                 <div className="text-center py-12 text-gray-600">
-                  <p className="text-lg">No upcoming bookings to display</p>
+                  <p className="text-lg">No bookings to display</p>
                 </div>
               )}
             </div>
