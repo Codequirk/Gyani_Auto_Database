@@ -156,6 +156,8 @@ exports.updateAssignment = async (req, res, next) => {
       return res.status(404).json({ error: 'Assignment not found' });
     }
 
+    const autoId = assignment.auto_id;
+
     // Prepare update data
     const updateData = {};
     if (company_id) updateData.company_id = company_id;
@@ -164,11 +166,41 @@ exports.updateAssignment = async (req, res, next) => {
     if (status) updateData.status = status;
     if (days) updateData.days = parseInt(days);
 
+    // If dates changed but status not specified, recalculate status
+    if ((start_date || end_date) && !status) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkStartDate = new Date(start_date || assignment.start_date);
+      checkStartDate.setHours(0, 0, 0, 0);
+      const newAssignmentStatus = checkStartDate <= today ? 'ACTIVE' : 'PREBOOKED';
+      updateData.status = newAssignmentStatus;
+    }
+
     const updated = await Assignment.update(id, updateData);
 
-    // If completing assignment, mark auto as IDLE
-    if (status === 'COMPLETED') {
-      await Auto.updateStatus(assignment.auto_id, 'IDLE');
+    // Update auto status based on all its assignments
+    const allAssignments = await Assignment.findByAutoId(autoId);
+    
+    if (status === 'COMPLETED' || updateData.status === 'COMPLETED') {
+      // Check if there are any remaining active/prebooked assignments
+      const activeAssignments = allAssignments.filter(a => 
+        (a.status === 'ACTIVE' || a.status === 'PREBOOKED') && a.id !== id
+      );
+      if (activeAssignments.length === 0) {
+        await Auto.updateStatus(autoId, 'IDLE');
+      }
+    } else {
+      // Check the status of remaining assignments
+      const hasActiveAssignment = allAssignments.some(a => a.id !== id && a.status === 'ACTIVE');
+      const hasPreAssignedAssignment = allAssignments.some(a => a.id !== id && a.status === 'PREBOOKED');
+      
+      if (hasActiveAssignment) {
+        await Auto.updateStatus(autoId, 'ASSIGNED');
+      } else if (hasPreAssignedAssignment || (updateData.status === 'PREBOOKED')) {
+        await Auto.updateStatus(autoId, 'PRE_ASSIGNED');
+      } else {
+        await Auto.updateStatus(autoId, 'IDLE');
+      }
     }
 
     // Enrich the response with company_name and days_remaining

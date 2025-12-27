@@ -174,20 +174,24 @@ const CompanyDashboardPage = () => {
   if (loading) return <LoadingSpinner />;
 
   // Show pending approval message if company status is PENDING_APPROVAL
-  if (company.status === 'PENDING_APPROVAL' || error.includes('pending admin approval')) {
-    const handleCheckStatus = async () => {
+  if (company.status === 'PENDING_APPROVAL' || company.company_status === 'PENDING_APPROVAL') {
+    const handleRefresh = async () => {
       setRefreshing(true);
       try {
         const success = await refreshCompanyStatus();
         if (success) {
           setError('');
-          // Retry fetching dashboard
-          window.location.reload();
+          setLoading(true);
+          // Fetch dashboard data after refreshing company status
+          const response = await api.get(`/company-portal/${company.id}/dashboard`);
+          setDashboard(response.data);
+          setLoading(false);
+          // Force re-render by checking updated company status
         } else {
-          alert('Still pending approval. Please try again later.');
+          setError('Failed to refresh status. Please try again.');
         }
       } catch (err) {
-        alert('Failed to check status. Please try again.');
+        setError('Failed to refresh. Please try logging out and logging back in.');
       } finally {
         setRefreshing(false);
       }
@@ -214,17 +218,11 @@ const CompanyDashboardPage = () => {
               </div>
               <div className="flex gap-3 justify-center">
                 <Button 
-                  onClick={handleCheckStatus}
+                  onClick={handleRefresh}
                   disabled={refreshing}
                   variant="primary"
                 >
-                  {refreshing ? '⏳ Checking...' : '🔄 Check Approval Status'}
-                </Button>
-                <Button 
-                  onClick={() => window.location.reload()}
-                  variant="secondary"
-                >
-                  ↻ Refresh Page
+                  {refreshing ? '⏳ Checking...' : '↻ Refresh Page'}
                 </Button>
               </div>
             </div>
@@ -344,18 +342,10 @@ const CompanyDashboardPage = () => {
         {/* Pre-booked Assignments */}
         {dashboard && dashboard.prebooked_assignments.length > 0 && (
           <Card className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold flex items-center">
-                <Badge variant="warning">PREBOOKED</Badge>
-                <span className="ml-2">Upcoming Assignments</span>
-              </h2>
-              <Button
-                onClick={() => setShowCalendarModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm"
-              >
-                📅 View Calendar
-              </Button>
-            </div>
+            <h2 className="text-xl font-bold flex items-center mb-4">
+              <Badge variant="warning">PREBOOKED</Badge>
+              <span className="ml-2">Upcoming Assignments</span>
+            </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
@@ -424,24 +414,11 @@ const CompanyDashboardPage = () => {
 
         {/* No Assignments Message */}
         {dashboard && dashboard.active_assignments.length === 0 && dashboard.prebooked_assignments.length === 0 && (
-          <>
-            <Card>
-              <div className="text-center py-12">
-                <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>
-              </div>
-            </Card>
-
-            {/* Calendar View for No Assignments */}
-            <Card>
-              <div className="mb-4">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">Calendar View</h2>
-              </div>
-              <CompanyPortalCalendar
-                assignments={[]}
-                areas={areas}
-              />
-            </Card>
-          </>
+          <Card>
+            <div className="text-center py-12">
+              <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>
+            </div>
+          </Card>
         )}
       </div>
 

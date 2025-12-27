@@ -14,7 +14,7 @@ class Company {
   }
 
   static async findAll(filters = {}) {
-    let query = { deleted_at: null, company_status: { $ne: 'PENDING_APPROVAL' } };
+    let query = { deleted_at: null };
 
     if (filters.status) {
       query.status = filters.status;

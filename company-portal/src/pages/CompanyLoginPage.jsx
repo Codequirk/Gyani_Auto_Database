@@ -23,6 +23,7 @@ const CompanyLoginPage = () => {
   const [regDaysRequired, setRegDaysRequired] = useState('');
   const [regStartDate, setRegStartDate] = useState('');
   const [regAreaId, setRegAreaId] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   
   const { login } = useCompanyAuth();
   const navigate = useNavigate();
@@ -94,6 +95,12 @@ const CompanyLoginPage = () => {
         return;
       }
 
+      if (regPassword.length < 6) {
+        setError('Password must be at least 6 characters');
+        setLoading(false);
+        return;
+      }
+
       const response = await api.post('/company-auth/register', {
         name: regName,
         email: regEmail,
@@ -110,12 +117,12 @@ const CompanyLoginPage = () => {
       
       // Show success message
       setError('');
-      alert(response.data.message || 'Registration successful! Your request is pending admin approval.');
+      setSuccessMessage(response.data.message || 'Registration successful! Your request is pending admin approval.');
       
-      // Wait a moment for state to update before navigating
+      // Navigate after 3 seconds
       setTimeout(() => {
         navigate('/dashboard');
-      }, 100);
+      }, 3000);
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed');
       setLoading(false);
@@ -124,6 +131,28 @@ const CompanyLoginPage = () => {
 
   return (
     <>
+      {successMessage && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full">
+            <div className="bg-green-600 px-6 py-8 flex items-center justify-center">
+              <div className="text-6xl">✓</div>
+            </div>
+            <div className="p-8 text-center">
+              <h2 className="text-3xl font-bold text-gray-900 mb-3">Registration Successful!</h2>
+              <p className="text-lg text-gray-600 mb-6">{successMessage}</p>
+              <p className="text-sm text-gray-500">Redirecting to dashboard in 3 seconds...</p>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition"
+                >
+                  Go to Dashboard Now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {!showForm ? (
         // Home Page Section
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -369,55 +398,11 @@ const CompanyLoginPage = () => {
                 <Input
                   type="password"
                   placeholder="Password"
-                  label="Password"
+                  label="Password (min 6 characters)"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
                   required
                 />
-
-                <div className="border-t pt-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Initial Request (Optional)</p>
-                  
-                  <Input
-                    type="number"
-                    placeholder="Autos Required"
-                    label="Autos Required"
-                    value={regAutosRequired}
-                    onChange={(e) => setRegAutosRequired(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Days Required"
-                    label="Days Required"
-                    value={regDaysRequired}
-                    onChange={(e) => setRegDaysRequired(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="date"
-                    label="Start Date"
-                    value={regStartDate}
-                    onChange={(e) => setRegStartDate(e.target.value)}
-                  />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Preferred Area
-                    </label>
-                    <select
-                      value={regAreaId}
-                      onChange={(e) => setRegAreaId(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                    >
-                      <option value="">Any Area</option>
-                      {areas.map((area) => (
-                        <option key={area.id} value={area.id}>
-                          {area.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
 
                 <Button
                   type="submit"

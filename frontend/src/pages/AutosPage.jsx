@@ -693,10 +693,13 @@ const AutosPage = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            
+            {/* Status Dropdown */}
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition appearance-none cursor-pointer"
+              style={{ height: '40px' }}
             >
               <option value="">All Status</option>
               <option value="IDLE">Idle</option>
@@ -709,10 +712,10 @@ const AutosPage = () => {
               <button
                 onClick={() => setShowAvailableAreas(!showAvailableAreas)}
                 className="w-full text-left px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                style={{ height: '40px', display: 'flex', alignItems: 'center' }}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between w-full">
                   <span className="text-sm">{selectedArea ? areas?.find(a => a.id === selectedArea)?.name : '📍 All Areas'}</span>
-                  <span className={`text-xs transition-transform ${showAvailableAreas ? 'rotate-180' : ''}`}>▼</span>
                 </div>
               </button>
 
@@ -751,12 +754,14 @@ const AutosPage = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => setShowAddAreaModal(true)}
-            className="w-full mt-3 py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium text-sm"
-          >
-            + Add New Area
-          </button>
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={() => setShowAddAreaModal(true)}
+              className="py-1 px-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium text-xs"
+            >
+              + Add Area
+            </button>
+          </div>
 
           {selectedAutos.size > 0 && (
             <div className="mt-4">
@@ -1205,7 +1210,8 @@ const AutosPage = () => {
 
           <Input
             type="text"
-            label="Pin Code (Optional)"
+            label="Pin Code *"
+            required
             value={newArea.pin_code}
             onChange={(e) => setNewArea({ ...newArea, pin_code: e.target.value })}
             placeholder="e.g., 560003"

@@ -237,7 +237,10 @@ const CompanyRequestsPage = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-lg font-semibold text-gray-900">
-                        {request.autos_required} Autos for {request.days_required} Days
+                        {request.autos_required === 0 && request.days_required === 0 
+                          ? '📝 Registration Request' 
+                          : `${request.autos_required} Autos for ${request.days_required} Days`
+                        }
                       </h3>
                       <Badge
                         variant={
@@ -315,7 +318,7 @@ const CompanyRequestsPage = () => {
           setShowApprovalModal(false);
           setAdminNotes('');
         }}
-        title={`Request Details - ${selectedRequest?.autos_required} Autos`}
+        title={`Request Details - ${selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 ? 'Registration Request' : `${selectedRequest?.autos_required} Autos`}`}
       >
         {selectedRequest && (
           <div className="space-y-4">
@@ -328,14 +331,18 @@ const CompanyRequestsPage = () => {
                 <p className="text-sm text-gray-600">Area</p>
                 <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
               </div>
-              <div>
-                <p className="text-sm text-gray-600">Autos Required</p>
-                <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Days Required</p>
-                <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
-              </div>
+              {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
+                <>
+                  <div>
+                    <p className="text-sm text-gray-600">Autos Required</p>
+                    <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Days Required</p>
+                    <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
+                  </div>
+                </>
+              )}
               <div>
                 <p className="text-sm text-gray-600">Start Date</p>
                 <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>

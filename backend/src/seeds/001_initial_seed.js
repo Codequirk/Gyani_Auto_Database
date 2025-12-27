@@ -84,98 +84,43 @@ const seedData = async () => {
     await admin2.save();
     console.log('✓ Admins seeded');
 
-    // Create autos
+    // Create autos - 5 IDLE autos per area
     const autoIds = {};
     const autos = [
-      // Koramangala (15 autos - 10 existing + 5 new IDLE)
+      // Koramangala - 5 IDLE autos
       { no: 'KA01AA1001', owner: 'Ramesh Kumar', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1002', owner: 'Sita Sharma', area: 'Koramangala', status: 'ASSIGNED' },
-      { no: 'KA01AA1003', owner: 'Raj Patel', area: 'Koramangala', status: 'PRE_ASSIGNED' },
+      { no: 'KA01AA1002', owner: 'Sita Sharma', area: 'Koramangala', status: 'IDLE' },
+      { no: 'KA01AA1003', owner: 'Raj Patel', area: 'Koramangala', status: 'IDLE' },
       { no: 'KA01AA1004', owner: 'Priya Singh', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1005', owner: 'Amit Verma', area: 'Koramangala', status: 'ASSIGNED' },
-      { no: 'KA01AA1006', owner: 'Neha Gupta', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1007', owner: 'Vikram Reddy', area: 'Koramangala', status: 'PRE_ASSIGNED' },
-      { no: 'KA01AA1008', owner: 'Anjali Mishra', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1009', owner: 'Suresh Nair', area: 'Koramangala', status: 'ASSIGNED' },
-      { no: 'KA01AA1010', owner: 'Divya Kumar', area: 'Koramangala', status: 'IDLE' },
-      // 5 new IDLE autos for Koramangala
-      { no: 'KA01AA1011', owner: 'Ravindra Pal', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1012', owner: 'Swathi Desai', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1013', owner: 'Mohan Reddy', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1014', owner: 'Lakshmi Kumar', area: 'Koramangala', status: 'IDLE' },
-      { no: 'KA01AA1015', owner: 'Arjun Nair', area: 'Koramangala', status: 'IDLE' },
+      { no: 'KA01AA1005', owner: 'Amit Verma', area: 'Koramangala', status: 'IDLE' },
       
-      // Jayanagar (15 autos - 10 existing + 5 new IDLE)
+      // Jayanagar - 5 IDLE autos
       { no: 'KA01AA2001', owner: 'Mohan Lal', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2002', owner: 'Pooja Desai', area: 'Jayanagar', status: 'ASSIGNED' },
-      { no: 'KA01AA2003', owner: 'Arjun Singh', area: 'Jayanagar', status: 'PRE_ASSIGNED' },
+      { no: 'KA01AA2002', owner: 'Pooja Desai', area: 'Jayanagar', status: 'IDLE' },
+      { no: 'KA01AA2003', owner: 'Arjun Singh', area: 'Jayanagar', status: 'IDLE' },
       { no: 'KA01AA2004', owner: 'Sneha Kapoor', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2005', owner: 'Rohit Sharma', area: 'Jayanagar', status: 'ASSIGNED' },
-      { no: 'KA01AA2006', owner: 'Kavya Nair', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2007', owner: 'Arun Chandra', area: 'Jayanagar', status: 'PRE_ASSIGNED' },
-      { no: 'KA01AA2008', owner: 'Deepa Srivastav', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2009', owner: 'Vivek Pandey', area: 'Jayanagar', status: 'ASSIGNED' },
-      { no: 'KA01AA2010', owner: 'Isha Bhat', area: 'Jayanagar', status: 'IDLE' },
-      // 5 new IDLE autos for Jayanagar
-      { no: 'KA01AA2011', owner: 'Pradeep Singh', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2012', owner: 'Ritu Sharma', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2013', owner: 'Harish Kumar', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2014', owner: 'Sunita Roy', area: 'Jayanagar', status: 'IDLE' },
-      { no: 'KA01AA2015', owner: 'Vishal Patel', area: 'Jayanagar', status: 'IDLE' },
+      { no: 'KA01AA2005', owner: 'Rohit Sharma', area: 'Jayanagar', status: 'IDLE' },
       
-      // Indiranagar (15 autos - 10 existing + 5 new IDLE)
+      // Indiranagar - 5 IDLE autos
       { no: 'KA01AA3001', owner: 'Kumar Singh', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3002', owner: 'Mira Gupta', area: 'Indiranagar', status: 'ASSIGNED' },
-      { no: 'KA01AA3003', owner: 'Sanjay Verma', area: 'Indiranagar', status: 'PRE_ASSIGNED' },
+      { no: 'KA01AA3002', owner: 'Mira Gupta', area: 'Indiranagar', status: 'IDLE' },
+      { no: 'KA01AA3003', owner: 'Sanjay Verma', area: 'Indiranagar', status: 'IDLE' },
       { no: 'KA01AA3004', owner: 'Riya Rao', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3005', owner: 'Nikhil Joshi', area: 'Indiranagar', status: 'ASSIGNED' },
-      { no: 'KA01AA3006', owner: 'Priya Nair', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3007', owner: 'Ashok Kumar', area: 'Indiranagar', status: 'PRE_ASSIGNED' },
-      { no: 'KA01AA3008', owner: 'Shruti Malhotra', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3009', owner: 'Rajesh Iyer', area: 'Indiranagar', status: 'ASSIGNED' },
-      { no: 'KA01AA3010', owner: 'Anuradha Singh', area: 'Indiranagar', status: 'IDLE' },
-      // 5 new IDLE autos for Indiranagar
-      { no: 'KA01AA3011', owner: 'Rajesh Kumar', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3012', owner: 'Anjali Gupta', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3013', owner: 'Vikram Singh', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3014', owner: 'Divya Nair', area: 'Indiranagar', status: 'IDLE' },
-      { no: 'KA01AA3015', owner: 'Suresh Iyer', area: 'Indiranagar', status: 'IDLE' },
+      { no: 'KA01AA3005', owner: 'Nikhil Joshi', area: 'Indiranagar', status: 'IDLE' },
       
-      // Whitefield (15 autos - 10 existing + 5 new IDLE)
+      // Whitefield - 5 IDLE autos
       { no: 'KA01AA4001', owner: 'Vikram Patel', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4002', owner: 'Sneha Roy', area: 'Whitefield', status: 'ASSIGNED' },
-      { no: 'KA01AA4003', owner: 'Aditya Nair', area: 'Whitefield', status: 'PRE_ASSIGNED' },
+      { no: 'KA01AA4002', owner: 'Sneha Roy', area: 'Whitefield', status: 'IDLE' },
+      { no: 'KA01AA4003', owner: 'Aditya Nair', area: 'Whitefield', status: 'IDLE' },
       { no: 'KA01AA4004', owner: 'Hema Reddy', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4005', owner: 'Siddharth Kapoor', area: 'Whitefield', status: 'ASSIGNED' },
-      { no: 'KA01AA4006', owner: 'Swati Sharma', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4007', owner: 'Karthik Shetty', area: 'Whitefield', status: 'PRE_ASSIGNED' },
-      { no: 'KA01AA4008', owner: 'Meera Desai', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4009', owner: 'Harsh Verma', area: 'Whitefield', status: 'ASSIGNED' },
-      { no: 'KA01AA4010', owner: 'Pooja Srivastav', area: 'Whitefield', status: 'IDLE' },
-      // 5 new IDLE autos for Whitefield
-      { no: 'KA01AA4011', owner: 'Nikhil Verma', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4012', owner: 'Priya Kapoor', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4013', owner: 'Arjun Patel', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4014', owner: 'Isha Sharma', area: 'Whitefield', status: 'IDLE' },
-      { no: 'KA01AA4015', owner: 'Rohan Shetty', area: 'Whitefield', status: 'IDLE' },
+      { no: 'KA01AA4005', owner: 'Siddharth Kapoor', area: 'Whitefield', status: 'IDLE' },
       
-      // MG Road (15 autos - 10 existing + 5 new IDLE)
+      // MG Road - 5 IDLE autos
       { no: 'KA01AA5001', owner: 'Arjun Mishra', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5002', owner: 'Divya Rao', area: 'MG Road', status: 'ASSIGNED' },
-      { no: 'KA01AA5003', owner: 'Rajeev Singh', area: 'MG Road', status: 'PRE_ASSIGNED' },
+      { no: 'KA01AA5002', owner: 'Divya Rao', area: 'MG Road', status: 'IDLE' },
+      { no: 'KA01AA5003', owner: 'Rajeev Singh', area: 'MG Road', status: 'IDLE' },
       { no: 'KA01AA5004', owner: 'Kavya Patel', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5005', owner: 'Sanjiv Kapoor', area: 'MG Road', status: 'ASSIGNED' },
-      { no: 'KA01AA5006', owner: 'Neha Roy', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5007', owner: 'Vikas Joshi', area: 'MG Road', status: 'PRE_ASSIGNED' },
-      { no: 'KA01AA5008', owner: 'Anita Nair', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5009', owner: 'Rohan Reddy', area: 'MG Road', status: 'ASSIGNED' },
-      { no: 'KA01AA5010', owner: 'Seetha Kumar', area: 'MG Road', status: 'IDLE' },
-      // 5 new IDLE autos for MG Road
-      { no: 'KA01AA5011', owner: 'Sanjay Joshi', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5012', owner: 'Meera Patel', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5013', owner: 'Arun Verma', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5014', owner: 'Seema Singh', area: 'MG Road', status: 'IDLE' },
-      { no: 'KA01AA5015', owner: 'Vikram Rao', area: 'MG Road', status: 'IDLE' },
+      { no: 'KA01AA5005', owner: 'Sanjiv Kapoor', area: 'MG Road', status: 'IDLE' },
     ];
 
     for (const auto of autos) {
@@ -195,7 +140,7 @@ const seedData = async () => {
       });
       await autoDoc.save();
     }
-    console.log('✓ Autos seeded (75 autos - 15 per area, with 5 IDLE autos each)');
+    console.log('✓ Autos seeded (25 autos - 5 IDLE autos per area)');
 
     // Create companies
     const companyIds = {};

@@ -188,7 +188,7 @@ const AddAutoPage = () => {
                 <option value="">Select an area</option>
                 {areas?.map((area) => (
                   <option key={area.id} value={area.id}>
-                    {area.name}
+                    {area.name} {area.pin_code ? `(${area.pin_code})` : ''}
                   </option>
                 ))}
               </select>

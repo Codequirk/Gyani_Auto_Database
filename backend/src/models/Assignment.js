@@ -92,6 +92,11 @@ class Assignment {
     return result;
   }
 
+  static async deleteByCompanyId(companyId) {
+    const result = await AssignmentSchema.deleteMany({ company_id: companyId });
+    return result;
+  }
+
   static async deleteById(id) {
     const result = await AssignmentSchema.findOneAndDelete({ id });
     return result;

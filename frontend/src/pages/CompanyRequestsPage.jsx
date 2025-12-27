@@ -14,6 +14,7 @@ const CompanyRequestsPage = () => {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [showAutoAssignmentModal, setShowAutoAssignmentModal] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
@@ -200,13 +201,16 @@ const CompanyRequestsPage = () => {
       return;
     }
     
+    const confirmed = window.confirm('Are you sure you want to reject this request?\n\nReason: ' + rejectionReason);
+    if (!confirmed) return;
+
     setActionLoading(true);
     try {
       await api.patch(`/company-tickets/admin/${selectedRequest.id}/reject`, {
         reason: rejectionReason,
       });
       alert('Request rejected successfully');
-      setShowApprovalModal(false);
+      setShowRejectionModal(false);
       setShowDetailsModal(false);
       setSelectedRequest(null);
       setRejectionReason('');
@@ -263,7 +267,10 @@ const CompanyRequestsPage = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-lg font-semibold text-gray-900">
-                        {request.autos_required} Autos for {request.days_required} Days
+                        {request.autos_required === 0 && request.days_required === 0 
+                          ? '📝 Request for Registration' 
+                          : `${request.autos_required} Autos for ${request.days_required} Days`
+                        }
                       </h3>
                       <Badge
                         variant={
@@ -341,7 +348,7 @@ const CompanyRequestsPage = () => {
           setShowApprovalModal(false);
           setAdminNotes('');
         }}
-        title={`Request Details - ${selectedRequest?.autos_required} Autos`}
+        title={`Request Details - ${selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 ? 'Registration Request' : `${selectedRequest?.autos_required} Autos`}`}
       >
         {selectedRequest && (
           <div className="space-y-4">
@@ -354,14 +361,18 @@ const CompanyRequestsPage = () => {
                 <p className="text-sm text-gray-600">Area</p>
                 <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
               </div>
-              <div>
-                <p className="text-sm text-gray-600">Autos Required</p>
-                <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Days Required</p>
-                <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
-              </div>
+              {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
+                <>
+                  <div>
+                    <p className="text-sm text-gray-600">Autos Required</p>
+                    <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Days Required</p>
+                    <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
+                  </div>
+                </>
+              )}
               <div>
                 <p className="text-sm text-gray-600">Start Date</p>
                 <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>
@@ -400,23 +411,6 @@ const CompanyRequestsPage = () => {
                 {actionLoading ? 'Saving...' : 'Save Notes'}
               </Button>
             </div>
-
-            {/* Rejection Reason (if needed) */}
-            {showApprovalModal && selectedRequest.ticket_status === 'PENDING' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Rejection Reason (if rejecting)
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Explain why this request is being rejected"
-                  rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
-              </div>
-            )}
-
             {/* Action Buttons */}
             {selectedRequest.ticket_status === 'PENDING' && (
               <div className="flex gap-3">
@@ -426,10 +420,10 @@ const CompanyRequestsPage = () => {
                   disabled={actionLoading || loadingAutos}
                   className="flex-1"
                 >
-                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Approve'}
+                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Accept'}
                 </Button>
                 <Button
-                  onClick={() => setShowApprovalModal(!showApprovalModal)}
+                  onClick={() => setShowRejectionModal(true)}
                   variant="danger"
                   disabled={actionLoading}
                   className="flex-1"
@@ -458,6 +452,57 @@ const CompanyRequestsPage = () => {
                 </Button>
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Rejection Modal */}
+      <Modal
+        isOpen={showRejectionModal}
+        onClose={() => {
+          setShowRejectionModal(false);
+          setRejectionReason('');
+        }}
+        title="Reject Request"
+      >
+        {selectedRequest && (
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm text-gray-600 mb-3">
+                <strong>Company:</strong> {selectedRequest.company?.name}
+              </p>
+              <p className="text-sm text-gray-600 mb-4">
+                Please provide a reason for rejecting this request:
+              </p>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="Explain why this request is being rejected"
+                rows="4"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={handleReject}
+                variant="danger"
+                disabled={!rejectionReason.trim() || actionLoading}
+                className="flex-1"
+              >
+                {actionLoading ? 'Processing...' : '✕ Reject'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowRejectionModal(false);
+                  setRejectionReason('');
+                }}
+                variant="secondary"
+                className="flex-1"
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
       </Modal>

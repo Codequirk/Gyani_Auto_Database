@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { companyService, assignmentService, autoService, areaService } from '../services/api';
@@ -58,6 +58,68 @@ const calculateTotalAssignedDays = (assignments) => {
   return totalDays;
 };
 
+const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const handleEdit = () => {
+    onEdit();
+    setIsOpen(false);
+  };
+
+  const handleDelete = () => {
+    onDelete();
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative inline-block" ref={menuRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-gray-600 hover:text-gray-900 font-bold text-lg p-1 hover:bg-gray-100 rounded"
+        title="Actions"
+        type="button"
+      >
+        ⋮
+      </button>
+      {isOpen && (
+        <div 
+          className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-[9999] border border-gray-200 overflow-hidden"
+        >
+          <button
+            onClick={handleEdit}
+            type="button"
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={isLoading}
+            type="button"
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CompanyDetailPage = () => {
   const { companyId } = useParams();
   const navigate = useNavigate();
@@ -65,6 +127,13 @@ const CompanyDetailPage = () => {
   const [selectedAreaForFilter, setSelectedAreaForFilter] = useState('');
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [selectedAreaForCalendar, setSelectedAreaForCalendar] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [deleteConfirmAssignmentId, setDeleteConfirmAssignmentId] = useState(null);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    start_date: '',
+    end_date: '',
+  });
 
   // Fetch company details
   const { data: company, loading: companyLoading } = useFetch(
@@ -73,7 +142,7 @@ const CompanyDetailPage = () => {
   );
 
   // Fetch assignments for this company
-  const { data: companyAssignments, loading: assignmentsLoading } = useFetch(
+  const { data: companyAssignments, loading: assignmentsLoading, refetch: refetchAssignments } = useFetch(
     () => assignmentService.getByCompany(companyId),
     [companyId]
   );
@@ -137,6 +206,63 @@ const CompanyDetailPage = () => {
         area_id: a.area_id,
         area_name: a.area_name,
       }))) : [];
+
+  const handleDeleteAssignment = async (assignmentId) => {
+    if (!window.confirm('Are you sure you want to delete this assignment?')) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      await assignmentService.delete(assignmentId);
+      setDeleteConfirmAssignmentId(null);
+      await refetchAssignments();
+    } catch (err) {
+      console.error('Error deleting assignment:', err);
+      setError(err.response?.data?.error || 'Failed to delete assignment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditAssignment = (assignment) => {
+    setEditingAssignment(assignment);
+    setEditFormData({
+      start_date: assignment.start_date,
+      end_date: assignment.end_date,
+    });
+  };
+
+  const handleUpdateAssignment = async () => {
+    if (!editFormData.start_date || !editFormData.end_date) {
+      setError('Start date and end date are required');
+      return;
+    }
+
+    const startDate = new Date(editFormData.start_date);
+    const endDate = new Date(editFormData.end_date);
+    if (endDate < startDate) {
+      setError('End date must be after start date');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      await assignmentService.update(editingAssignment.id, {
+        start_date: editFormData.start_date,
+        end_date: editFormData.end_date,
+      });
+      setEditingAssignment(null);
+      await refetchAssignments();
+    } catch (err) {
+      console.error('Error updating assignment:', err);
+      setError(err.response?.data?.error || 'Failed to update assignment');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -325,6 +451,9 @@ const CompanyDetailPage = () => {
                     <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                       Status
                     </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -357,6 +486,13 @@ const CompanyDetailPage = () => {
                         <Badge className={getStatusBadgeColor(assignment.status)}>
                           {assignment.status}
                         </Badge>
+                      </td>
+                      <td className="px-6 py-3 text-sm">
+                        <ActionMenu
+                          onEdit={() => handleEditAssignment(assignment)}
+                          onDelete={() => handleDeleteAssignment(assignment.id)}
+                          isLoading={loading}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -405,6 +541,88 @@ const CompanyDetailPage = () => {
 
                 {/* Calendar Component */}
                 <AssignmentCalendar assignments={calendarAssignments} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Assignment Modal */}
+        {editingAssignment && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">Edit Assignment</h2>
+                <button
+                  onClick={() => setEditingAssignment(null)}
+                  className="text-white hover:text-gray-200 font-bold text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6">
+                {error && (
+                  <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                    {error}
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Auto Number
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      value={editingAssignment.auto_no}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editFormData.start_date}
+                      onChange={(e) => setEditFormData({...editFormData, start_date: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editFormData.end_date}
+                      onChange={(e) => setEditFormData({...editFormData, end_date: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleUpdateAssignment}
+                      disabled={loading}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    >
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                    <Button
+                      onClick={() => setEditingAssignment(null)}
+                      variant="secondary"
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

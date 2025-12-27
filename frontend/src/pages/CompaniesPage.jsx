@@ -8,34 +8,58 @@ import Navbar from '../components/Navbar';
 
 const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const handleEdit = () => {
+    onEdit();
+    setIsOpen(false);
+  };
+
+  const handleDelete = () => {
+    onDelete();
+    setIsOpen(false);
+  };
 
   return (
-    <div className="relative inline-block">
+    <div className="relative inline-block" ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
+        className="text-gray-600 hover:text-gray-900 font-bold text-lg p-1 hover:bg-gray-100 rounded"
         title="Actions"
+        type="button"
       >
         ⋮
       </button>
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+        <div 
+          className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-[9999] border border-gray-200 overflow-hidden"
+        >
           <button
-            onClick={() => {
-              onEdit();
-              setIsOpen(false);
-            }}
-            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+            onClick={handleEdit}
+            type="button"
+            className="block w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors"
           >
             Edit
           </button>
           <button
-            onClick={() => {
-              onDelete();
-              setIsOpen(false);
-            }}
+            onClick={handleDelete}
             disabled={isLoading}
-            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 disabled:opacity-50"
+            type="button"
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Delete
           </button>
@@ -54,6 +78,7 @@ const CompaniesPage = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [editingCompanyId, setEditingCompanyId] = useState(null);
   
   const debounceTimer = useRef(null);
 
@@ -62,6 +87,7 @@ const CompaniesPage = () => {
     contact_person: '',
     emails: [''],
     phone_numbers: [''],
+    password: '',
   });
 
   // Debounce search input
@@ -81,6 +107,19 @@ const CompaniesPage = () => {
     loading: companiesLoading,
     refetch: refetchCompanies,
   } = useFetch(() => companyService.list({ search: debouncedSearch, status: selectedStatus }), [debouncedSearch, selectedStatus]);
+
+  const handleEdit = (company) => {
+    setEditingCompanyId(company.id);
+    setFormState({
+      name: company.name || '',
+      contact_person: company.contact_person || '',
+      emails: company.emails && company.emails.length > 0 ? company.emails : [''],
+      phone_numbers: company.phone_numbers && company.phone_numbers.length > 0 ? company.phone_numbers : [''],
+      password: '',
+    });
+    setShowAddModal(true);
+    setErrorMessage('');
+  };
 
   const handleDelete = async (companyId) => {
     if (!window.confirm('Are you sure you want to delete this company?')) {
@@ -154,6 +193,7 @@ const CompaniesPage = () => {
     
     const name = formState.name.trim();
     const contact_person = formState.contact_person.trim();
+    const password = formState.password.trim();
     
     if (!name) {
       setErrorMessage('Company Name is required');
@@ -162,6 +202,17 @@ const CompaniesPage = () => {
     
     if (!contact_person) {
       setErrorMessage('Applicant Name is required');
+      return;
+    }
+
+    // Password validation: required for create, optional for edit
+    if (!editingCompanyId && !password) {
+      setErrorMessage('Password is required');
+      return;
+    }
+
+    if (password && password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters');
       return;
     }
     
@@ -193,23 +244,37 @@ const CompaniesPage = () => {
         contact_person: contact_person,
         emails: validEmails,
         phone_numbers: validPhones,
-        status: 'ACTIVE',
       };
 
-      console.log('Creating company with data:', submitData);
-      
-      const response = await companyService.create(submitData);
-      console.log('Company created:', response);
-      
-      setSuccessMessage('Company created successfully!');
+      if (password) {
+        submitData.password = password;
+      }
+
+      if (!editingCompanyId) {
+        submitData.status = 'ACTIVE';
+      }
+
+      if (editingCompanyId) {
+        console.log('Updating company with data:', submitData);
+        const response = await companyService.update(editingCompanyId, submitData);
+        console.log('Company updated:', response);
+        setSuccessMessage('Company updated successfully!');
+      } else {
+        console.log('Creating company with data:', submitData);
+        const response = await companyService.create(submitData);
+        console.log('Company created:', response);
+        setSuccessMessage('Company created successfully!');
+      }
       
       setFormState({
         name: '',
         contact_person: '',
         emails: [''],
         phone_numbers: [''],
+        password: '',
       });
       
+      setEditingCompanyId(null);
       setShowAddModal(false);
       
       refetchCompanies();
@@ -268,68 +333,72 @@ const CompaniesPage = () => {
         </Card>
 
         {/* Companies Table */}
-        <Card>
-          {companies?.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No companies found
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-100 border-b border-gray-300">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Email
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {companies?.map((company) => (
-                    <tr key={company.id} className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/companies/${company.id}`)}>
-                      <td className="px-6 py-3 text-sm text-gray-900">{company.name}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{company.email}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">
-                        {formatDate(company.created_at)}
-                      </td>
-                      <td className="px-6 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
-                        <ActionMenu
-                          onEdit={() => alert('Edit company functionality coming soon')}
-                          onDelete={() => handleDelete(company.id)}
-                          isLoading={loading}
-                        />
-                      </td>
+        <div className="overflow-visible">
+          <Card className="overflow-visible">
+            {companies?.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No companies found
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-100 border-b border-gray-300">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                        Name
+                      </th>
+                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                        Email
+                      </th>
+                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                        Created
+                      </th>
+                      <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                  </thead>
+                  <tbody>
+                    {companies?.map((company, index) => (
+                      <tr key={company.id} className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/companies/${company.id}`)}>
+                        <td className="px-6 py-3 text-sm text-gray-900">{company.name}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600">{company.email}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600">
+                          {formatDate(company.created_at)}
+                        </td>
+                        <td className="px-6 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
+                          <ActionMenu
+                            onEdit={() => handleEdit(company)}
+                            onDelete={() => handleDelete(company.id)}
+                            isLoading={loading}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
 
-        {/* Add Company Modal */}
+        {/* Add/Edit Company Modal */}
         {showAddModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
               <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-white">Add New Company</h2>
+                <h2 className="text-xl font-bold text-white">{editingCompanyId ? 'Edit Company' : 'Add New Company'}</h2>
                 <button
                   onClick={() => {
                     setShowAddModal(false);
+                    setEditingCompanyId(null);
                     setErrorMessage('');
                     setFormState({
                       name: '',
                       contact_person: '',
                       emails: [''],
                       phone_numbers: [''],
+                      password: '',
                     });
                   }}
                   className="text-white hover:text-gray-200 font-bold text-2xl"
@@ -372,6 +441,21 @@ const CompaniesPage = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Enter applicant name"
                     required
+                  />
+                </div>
+
+                {/* Password */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Password {!editingCompanyId && <span className="text-red-600">*</span>}
+                  </label>
+                  <input
+                    type="password"
+                    value={formState.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder={editingCompanyId ? 'Leave empty to keep current password' : 'Enter password (min 6 characters)'}
+                    required={!editingCompanyId}
                   />
                 </div>
 
@@ -470,6 +554,7 @@ const CompaniesPage = () => {
                         contact_person: '',
                         emails: [''],
                         phone_numbers: [''],
+                        password: '',
                       });
                     }}
                     className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium transition"

@@ -249,7 +249,24 @@ const CompanyDashboardPage = () => {
           </Button>
         </div>
 
-        {error && <ErrorAlert message={error} />}
+        {error && error.includes('pending admin approval') ? (
+          <div className="mb-8 p-8 bg-blue-50 border-2 border-blue-300 rounded-lg">
+            <div className="flex items-start gap-4">
+              <div className="text-5xl">⏳</div>
+              <div>
+                <h2 className="text-2xl font-bold text-blue-900 mb-2">Registration Under Review</h2>
+                <p className="text-lg text-blue-800 mb-3">Your company registration is being reviewed by our admin team.</p>
+                <p className="text-blue-700 mb-4">We're processing your request and will notify you once it's approved. This usually takes 24-48 hours.</p>
+                <div className="bg-blue-100 p-3 rounded border border-blue-200 text-sm text-blue-700">
+                  <strong>Company:</strong> {company.name}<br />
+                  <strong>Email:</strong> {company.email}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : error ? (
+          <ErrorAlert message={error} />
+        ) : null}
         {ticketSuccess && (
           <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
             {ticketSuccess}
