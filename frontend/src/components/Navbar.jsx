@@ -94,19 +94,10 @@ const Navbar = () => {
               <div className={`absolute right-0 mt-2 w-48 rounded shadow-lg z-50 top-full ${
                 darkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
               }`}>
-                <Link
-                  to="/company/login"
-                  className={`block w-full text-left px-4 py-2 text-sm ${
-                    darkMode ? 'hover:bg-gray-700 text-teal-400' : 'hover:bg-gray-100 text-teal-600'
-                  }`}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  → Company Portal
-                </Link>
                 <button
                   onClick={handleLogout}
-                  className={`w-full text-left px-4 py-2 border-t ${
-                    darkMode ? 'hover:bg-gray-700 border-gray-600' : 'hover:bg-gray-100'
+                  className={`w-full text-left px-4 py-2 ${
+                    darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
                   }`}
                 >
                   Logout

@@ -3,8 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "description": "Admin Portal - Port 3000",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 3000",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
