@@ -281,3 +281,30 @@ Your application is now **100% MongoDB-powered** with:
 Generated: December 20, 2025  
 Database: MongoDB  
 Status: ✅ Production Ready
+#  DUAL PORTAL SETUP (December 26, 2025)
+
+## Architecture
+- **Admin Portal**: Port 3000 (frontend/)
+- **Company Portal**: Port 3001 (company-portal/)
+- **Backend**: Port 5000 (backend/) - SHARED
+- **Database**: MongoDB - SHARED
+
+## Quick Start
+$# Navigate to project root
+cd "C:\Users\pragn.LAPTOP-DAHFBVDA\OneDrive\Documents\Connect"
+
+# Run all services
+start-all.bat
+`
+
+## Access URLs
+- Admin: http://localhost:3000
+- Company: http://localhost:3001
+- Backend: http://localhost:5000
+
+## Key Features
+- Separate frontends on ports 3000 & 3001
+- Single backend shared on port 5000
+- Same database for both portals
+- Automatic token routing (admin vs company auth)
+- One-click startup with start-all.bat
