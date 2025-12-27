@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { adminService } from '../services/api';
 import { Card, Button, LoadingSpinner, ErrorAlert, Badge } from '../components/UI';
@@ -7,21 +7,47 @@ import Navbar from '../components/Navbar';
 
 const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const handleMenuOpen = () => {
+    if (!isOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      setMenuPosition({ top: rect.bottom, left: rect.left });
+    }
+    setIsOpen(!isOpen);
+  };
 
   return (
     <div 
       className="relative inline-block"
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      ref={menuRef}
     >
       <button
+        onClick={handleMenuOpen}
         className="text-gray-600 hover:text-gray-800 font-bold text-lg p-1"
         title="Actions"
       >
         ⋮
       </button>
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-40 bg-white rounded shadow-lg z-10 border border-gray-200">
+        <div 
+          className="fixed w-40 bg-white rounded shadow-lg z-[9999] border border-gray-200"
+          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
+        >
           <button
             onClick={() => {
               onEdit();

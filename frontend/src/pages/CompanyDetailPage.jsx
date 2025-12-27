@@ -61,6 +61,7 @@ const calculateTotalAssignedDays = (assignments) => {
 const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -85,10 +86,18 @@ const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
     setIsOpen(false);
   };
 
+  const handleMenuOpen = () => {
+    if (!isOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      setMenuPosition({ top: rect.bottom, left: rect.left });
+    }
+    setIsOpen(!isOpen);
+  };
+
   return (
     <div className="relative inline-block" ref={menuRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleMenuOpen}
         className="text-gray-600 hover:text-gray-900 font-bold text-lg p-1 hover:bg-gray-100 rounded"
         title="Actions"
         type="button"
@@ -97,7 +106,8 @@ const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
       </button>
       {isOpen && (
         <div 
-          className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-[9999] border border-gray-200 overflow-hidden"
+          className="fixed w-40 bg-white rounded-lg shadow-xl z-[9999] border border-gray-200 overflow-hidden"
+          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
         >
           <button
             onClick={handleEdit}
