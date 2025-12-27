@@ -89,7 +89,7 @@ const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
   const handleMenuOpen = () => {
     if (!isOpen && menuRef.current) {
       const rect = menuRef.current.getBoundingClientRect();
-      setMenuPosition({ top: rect.bottom, left: rect.left });
+      setMenuPosition({ top: rect.top + rect.height / 2, left: rect.right + 8 });
     }
     setIsOpen(!isOpen);
   };
@@ -107,7 +107,7 @@ const ActionMenu = ({ onEdit, onDelete, isLoading }) => {
       {isOpen && (
         <div 
           className="fixed w-40 bg-white rounded-lg shadow-xl z-[9999] border border-gray-200 overflow-hidden"
-          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
+          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px`, transform: 'translateY(-50%)' }}
         >
           <button
             onClick={handleEdit}
