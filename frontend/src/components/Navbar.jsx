@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useDarkMode } from '../context/DarkModeContext';
 import api from '../services/api';
 
 const Navbar = () => {
   const { admin, logout } = useAuth();
-  const { darkMode, toggleDarkMode } = useDarkMode();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -76,14 +74,6 @@ const Navbar = () => {
             </button>
 
             <button
-              onClick={toggleDarkMode}
-              className="hover:bg-blue-700 px-3 py-2 rounded text-lg"
-              title="Toggle dark mode"
-            >
-              {darkMode ? '☀️' : '🌙'}
-            </button>
-
-            <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="hover:bg-blue-700 px-3 py-2 rounded"
             >
@@ -91,14 +81,10 @@ const Navbar = () => {
             </button>
 
             {menuOpen && (
-              <div className={`absolute right-0 mt-2 w-48 rounded shadow-lg z-50 top-full ${
-                darkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-              }`}>
+              <div className="absolute right-0 mt-2 w-48 rounded shadow-lg z-50 top-full bg-white text-gray-900">
                 <button
                   onClick={handleLogout}
-                  className={`w-full text-left px-4 py-2 ${
-                    darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                  }`}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-100"
                 >
                   Logout
                 </button>

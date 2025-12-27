@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { useAuth } from '../context/AuthContext';
-import { useDarkMode } from '../context/DarkModeContext';
 import api from '../services/api';
 import { Card, Button, Badge, LoadingSpinner, ErrorAlert, Modal, Input } from '../components/UI';
 import { formatDate } from '../utils/helpers';
@@ -9,7 +8,6 @@ import Navbar from '../components/Navbar';
 
 const CompanyRequestsPage = () => {
   const { admin } = useAuth();
-  const { darkMode } = useDarkMode();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -197,21 +195,21 @@ const CompanyRequestsPage = () => {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <div className="min-h-screen bg-gray-50">
       <Navbar />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Company Requests</h1>
-            <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Manage company registration and auto requests</p>
+            <h1 className="text-3xl font-bold text-gray-900">Company Requests</h1>
+            <p className="text-gray-600">Manage company registration and auto requests</p>
           </div>
           <Button onClick={fetchRequests}>🔄 Refresh</Button>
         </div>
 
         {error && <ErrorAlert message={error} />}
 
-        <div className={`mb-6 p-4 rounded-lg ${darkMode ? 'bg-gray-800' : 'bg-white'} border ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className="mb-6 p-4 rounded-lg bg-white border border-gray-200">
           <div className="flex gap-2">
             {['PENDING', 'APPROVED', 'REJECTED'].map((status) => (
               <Button
@@ -234,11 +232,11 @@ const CompanyRequestsPage = () => {
         ) : (
           <div className="space-y-4">
             {requests.map((request) => (
-              <Card key={request.id} className={`p-4 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'} cursor-pointer hover:shadow-lg transition-shadow`} onDoubleClick={() => handleViewDetails(request)}>
+              <Card key={request.id} className="p-4 bg-white cursor-pointer hover:shadow-lg transition-shadow" onDoubleClick={() => handleViewDetails(request)}>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                      <h3 className="text-lg font-semibold text-gray-900">
                         {request.autos_required} Autos for {request.days_required} Days
                       </h3>
                       <Badge
@@ -254,32 +252,32 @@ const CompanyRequestsPage = () => {
                       </Badge>
                     </div>
 
-                    <div className={`grid grid-cols-3 gap-4 text-sm mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <div className="grid grid-cols-3 gap-4 text-sm mb-3 text-gray-600">
                       <div>
-                        <p className={`font-medium ${darkMode ? 'text-gray-300' : ''}`}>Company</p>
-                        <p className={darkMode ? 'text-gray-200' : ''}>{request.company?.name || request.company_id}</p>
+                        <p className="font-medium">Company</p>
+                        <p>{request.company?.name || request.company_id}</p>
                       </div>
                       <div>
-                        <p className={`font-medium ${darkMode ? 'text-gray-300' : ''}`}>Area</p>
-                        <p className={darkMode ? 'text-gray-200' : ''}>{request.area_name || 'Any Area'}</p>
+                        <p className="font-medium">Area</p>
+                        <p>{request.area_name || 'Any Area'}</p>
                       </div>
                       <div>
-                        <p className={`font-medium ${darkMode ? 'text-gray-300' : ''}`}>Start Date</p>
+                        <p className="font-medium">Start Date</p>
                         <p>{formatDate(request.start_date)}</p>
                       </div>
                     </div>
 
                     {request.notes && (
-                      <div className={`p-2 rounded text-sm mb-3 ${darkMode ? 'bg-blue-900 bg-opacity-30' : 'bg-blue-50'}`}>
-                        <p className={`font-medium ${darkMode ? 'text-blue-300' : 'text-blue-900'}`}>Notes:</p>
-                        <p className={darkMode ? 'text-blue-200' : 'text-blue-800'}>{request.notes}</p>
+                      <div className="p-2 rounded text-sm mb-3 bg-blue-50">
+                        <p className="font-medium text-blue-900">Notes:</p>
+                        <p className="text-blue-800">{request.notes}</p>
                       </div>
                     )}
 
                     {request.admin_notes && (
-                      <div className={`p-2 rounded text-sm ${darkMode ? 'bg-yellow-900 bg-opacity-30' : 'bg-yellow-50'}`}>
-                        <p className={`font-medium ${darkMode ? 'text-yellow-300' : 'text-yellow-900'}`}>Admin Notes:</p>
-                        <p className={darkMode ? 'text-yellow-200' : 'text-yellow-800'}>{request.admin_notes}</p>
+                      <div className="p-2 rounded text-sm bg-yellow-50">
+                        <p className="font-medium text-yellow-900">Admin Notes:</p>
+                        <p className="text-yellow-800">{request.admin_notes}</p>
                       </div>
                     )}
 

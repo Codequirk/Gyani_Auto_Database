@@ -1,7 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CompanyAuthProvider, useCompanyAuth } from './context/CompanyAuthContext';
-import { DarkModeProvider, useDarkMode } from './context/DarkModeContext';
 import CompanyHomePage from './pages/CompanyHomePage';
 import CompanyLoginPage from './pages/CompanyLoginPage';
 import CompanyDashboardPage from './pages/CompanyDashboardPage';
@@ -45,38 +44,14 @@ function AppContent() {
   );
 }
 
-function DarkModeWrapper({ children }) {
-  const { darkMode } = useDarkMode();
-  
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [darkMode]);
-
-  return <>{children}</>;
-}
-
 function App() {
   return (
     <Router>
       <CompanyAuthProvider>
-        <DarkModeWrapper>
-          <AppContent />
-        </DarkModeWrapper>
+        <AppContent />
       </CompanyAuthProvider>
     </Router>
   );
 }
 
-const AppWithProviders = () => {
-  return (
-    <DarkModeProvider>
-      <App />
-    </DarkModeProvider>
-  );
-};
-
-export default AppWithProviders;
+export default App;
