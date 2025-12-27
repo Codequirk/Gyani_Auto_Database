@@ -28,12 +28,7 @@ const DashboardPage = () => {
         if (expandedList) {
           try {
             const autosRes = await autoService.list({});
-            const autosWithDays = autosRes.data.map((auto) => ({
-              ...auto,
-              days_remaining: auto.days_remaining || null,
-              current_company: auto.current_company || null,
-            }));
-            setAllAutos(autosWithDays);
+            setAllAutos(autosRes.data);
           } catch (autosErr) {
             console.error('Error fetching all autos:', autosErr);
             setError('Failed to load all autos');
@@ -206,15 +201,15 @@ const DashboardPage = () => {
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
-                      <td className="px-4 py-2">{auto.area_name}</td>
+                      <td className="px-4 py-2">{auto.area_name || '-'}</td>
                       <td className="px-4 py-2">
-                        <Badge variant={auto.status === 'ASSIGNED' ? 'primary' : 'default'}>
-                          {auto.status}
+                        <Badge variant={auto.display_status === 'ASSIGNED' ? 'primary' : 'default'}>
+                          {auto.display_status || auto.status || 'UNKNOWN'}
                         </Badge>
                       </td>
                       <td className="px-4 py-2">{auto.current_company || '-'}</td>
                       <td className="px-4 py-2">
-                        {auto.days_remaining !== null ? `${auto.days_remaining} days` : '-'}
+                        {auto.days_remaining !== null && auto.days_remaining !== undefined ? `${auto.days_remaining} days` : '-'}
                       </td>
                     </tr>
                   ))}

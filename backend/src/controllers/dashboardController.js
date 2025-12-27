@@ -4,13 +4,40 @@ const { computeDaysRemaining } = require('../utils/dateUtils');
 
 exports.getDashboardSummary = async (req, res, next) => {
   try {
-    // Count autos by status
-    const idleCount = await Auto.getIdleCount();
-    const preAssignedCount = await Auto.getPreAssignedCount();
-    const assignedCount = await Auto.getAssignedCount();
+    // Get all autos with their assignments
+    const AutoSchema = require('../models/schemas/AutoSchema');
+    const AssignmentSchema = require('../models/schemas/AssignmentSchema');
+    const AreaSchema = require('../models/schemas/AreaSchema');
 
-    // Get idle autos
-    const idleAutos = await Auto.getIdleAutos();
+    const allAutos = await AutoSchema.find({ deleted_at: null });
+    
+    let idleCount = 0;
+    let preAssignedCount = 0;
+    let assignedCount = 0;
+    const idleAutosList = [];
+
+    // Count autos based on their actual active/prebooked assignments
+    for (const auto of allAutos) {
+      const assignments = await AssignmentSchema.find({ auto_id: auto.id });
+      const activeAssignments = assignments.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED');
+
+      if (activeAssignments.length === 0) {
+        idleCount++;
+        // Add to idle list with area name
+        const autoObj = auto.toObject();
+        const area = await AreaSchema.findOne({ id: autoObj.area_id });
+        if (area) autoObj.area_name = area.name;
+        idleAutosList.push(autoObj);
+      } else {
+        // Check if any ACTIVE assignments exist
+        const hasActive = activeAssignments.some(a => a.status === 'ACTIVE');
+        if (hasActive) {
+          assignedCount++;
+        } else {
+          preAssignedCount++;
+        }
+      }
+    }
 
     // Get priority autos (2 days remaining)
     const priorityAutos = await Auto.getPriorityAutos(2);
@@ -36,7 +63,7 @@ exports.getDashboardSummary = async (req, res, next) => {
         assigned: assignedCount,
         priority_2days: priorityCount,
       },
-      idle_autos: idleAutos,
+      idle_autos: idleAutosList,
       priority_autos: enrichedPriority,
     });
   } catch (error) {
