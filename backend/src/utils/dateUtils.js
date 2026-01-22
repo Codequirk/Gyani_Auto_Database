@@ -1,4 +1,5 @@
 // Calculate days remaining from end_date
+// Returns 0 if the end_date is today or in the past (never negative)
 function computeDaysRemaining(endDate) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -9,7 +10,8 @@ function computeDaysRemaining(endDate) {
   const timeDiff = end - today;
   const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
   
-  return daysDiff;
+  // Return 0 if assignment has expired (no negative values)
+  return daysDiff < 0 ? 0 : daysDiff;
 }
 
 // Calculate total days between two dates (inclusive)

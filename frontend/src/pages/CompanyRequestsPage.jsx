@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useFetch } from '../hooks/useFetch';
 import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
+import api, { paymentService } from '../services/api';
 import { Card, Button, Badge, LoadingSpinner, ErrorAlert, Modal, Input } from '../components/UI';
 import { formatDate } from '../utils/helpers';
 import Navbar from '../components/Navbar';
@@ -24,6 +24,15 @@ const CompanyRequestsPage = () => {
   const [availableAutos, setAvailableAutos] = useState([]);
   const [selectedAutos, setSelectedAutos] = useState(new Set());
   const [loadingAutos, setLoadingAutos] = useState(false);
+  
+  // Payment related states
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [payments, setPayments] = useState([]);
+  const [paymentSummary, setPaymentSummary] = useState(null);
+  const [costPerDay, setCostPerDay] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  const [availableAutosForPayment, setAvailableAutosForPayment] = useState([]);
 
   useEffect(() => {
     fetchRequests();
@@ -166,8 +175,14 @@ const CompanyRequestsPage = () => {
         : 'Request approved (no autos assigned as requested)';
       alert(message);
       setShowAutoAssignmentModal(false);
-      setShowDetailsModal(false);
-      setSelectedRequest(null);
+      
+      // Refresh the selected request to show payment section
+      const updatedRequest = await api.get(`/company-tickets/admin/all`);
+      const ticket = updatedRequest.data.find(t => t.id === selectedRequest.id);
+      if (ticket) {
+        setSelectedRequest(ticket);
+      }
+      
       setSelectedAutos(new Set());
       setAvailableAutos([]);
       fetchRequests();
@@ -222,7 +237,54 @@ const CompanyRequestsPage = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  const handleOpenPaymentModal = async () => {
+    if (!selectedRequest) return;
+    
+    setPaymentLoading(true);
+    setPaymentError('');
+    try {
+      // Fetch existing payments and summary
+      const [paymentsRes, summaryRes, availableRes] = await Promise.all([
+        paymentService.getTicketPayments(selectedRequest.id),
+        paymentService.getTicketSummary(selectedRequest.id),
+        paymentService.getAvailableAutos(selectedRequest.id),
+      ]);
+      
+      setPayments(paymentsRes.data);
+      setPaymentSummary(summaryRes.data);
+      setAvailableAutosForPayment(availableRes.data.available_autos || []);
+      setShowPaymentModal(true);
+    } catch (err) {
+      setPaymentError(err.response?.data?.error || 'Failed to load payments');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) return;
+
+    setPaymentLoading(true);
+    try {
+      await paymentService.delete(paymentId);
+      
+      // Refresh payments
+      const [paymentsRes, summaryRes, availableRes] = await Promise.all([
+        paymentService.getTicketPayments(selectedRequest.id),
+        paymentService.getTicketSummary(selectedRequest.id),
+        paymentService.getAvailableAutos(selectedRequest.id),
+      ]);
+      
+      setPayments(paymentsRes.data);
+      setPaymentSummary(summaryRes.data);
+      setAvailableAutosForPayment(availableRes.data.available_autos || []);
+      alert('Payment deleted successfully');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete payment');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -411,6 +473,27 @@ const CompanyRequestsPage = () => {
                 {actionLoading ? 'Saving...' : 'Save Notes'}
               </Button>
             </div>
+
+            {/* Payment Section */}
+            {selectedRequest?.ticket_status === 'APPROVED' && selectedRequest?.autos_required > 0 && (
+              <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-semibold text-blue-900">💰 Payment Assignment</h3>
+                  <Button
+                    onClick={handleOpenPaymentModal}
+                    variant="primary"
+                    className="text-sm"
+                    disabled={paymentLoading}
+                  >
+                    {paymentLoading ? 'Loading...' : '⚙️ Manage Payments'}
+                  </Button>
+                </div>
+                <p className="text-sm text-blue-700">
+                  Assign cost per day for each auto to calculate total payment
+                </p>
+              </div>
+            )}
+
             {/* Action Buttons */}
             {selectedRequest.ticket_status === 'PENDING' && (
               <div className="flex gap-3">
@@ -670,6 +753,176 @@ const CompanyRequestsPage = () => {
               </Button>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Payment Management Modal */}
+      <Modal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentError('');
+          setCostPerDay('');
+        }}
+        title={`Payment Management - ${selectedRequest?.company?.name || 'Company'}`}
+      >
+        {selectedRequest && (
+          <div className="space-y-6 max-h-96 overflow-y-auto">
+          {paymentError && <ErrorAlert message={paymentError} />}
+
+          {/* Payment Summary */}
+          {paymentSummary && (
+            <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">Autos Required</p>
+                  <p className="text-2xl font-bold text-blue-900">{selectedRequest?.autos_required}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">Autos Added</p>
+                  <p className="text-2xl font-bold text-green-700">{paymentSummary.total_payments}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">Total Cost</p>
+                  <p className="text-2xl font-bold text-purple-900">₹{paymentSummary.total_cost.toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600 uppercase">Remaining</p>
+                  <p className="text-2xl font-bold text-orange-700">{paymentSummary.autos_remaining}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Add New Payment */}
+          <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+            <h4 className="font-semibold text-gray-900 mb-3">Set Cost Per Auto</h4>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cost Per Day (₹) - Applies to All Autos *
+                </label>
+                <Input
+                  type="number"
+                  value={costPerDay}
+                  onChange={(e) => setCostPerDay(e.target.value)}
+                  placeholder="e.g., 500"
+                  min="0"
+                  step="1"
+                />
+                <p className="text-xs text-gray-600 mt-2">
+                  Enter the daily cost rate. This will be applied to all {selectedRequest?.autos_required} autos.
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-gray-900">
+                  <strong>Remaining Autos:</strong> {paymentSummary?.autos_remaining || selectedRequest?.autos_required} autos
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  {paymentSummary?.autos_remaining === selectedRequest?.autos_required
+                    ? 'No payments assigned yet'
+                    : `${paymentSummary?.total_payments} of ${selectedRequest?.autos_required} autos have payments assigned`}
+                </p>
+              </div>
+
+              <Button
+                onClick={async () => {
+                  if (!costPerDay || isNaN(costPerDay) || parseFloat(costPerDay) < 0) {
+                    alert('Please enter a valid cost per day');
+                    return;
+                  }
+
+                  // Add payment for each available auto
+                  if (availableAutosForPayment.length === 0) {
+                    alert('All autos already have payments assigned!');
+                    return;
+                  }
+
+                  setPaymentLoading(true);
+                  try {
+                    let addedCount = 0;
+                    for (const auto of availableAutosForPayment) {
+                      try {
+                        await paymentService.add({
+                          ticket_id: selectedRequest.id,
+                          auto_id: auto.id,
+                          cost_per_day: parseFloat(costPerDay),
+                        });
+                        addedCount++;
+                      } catch (err) {
+                        console.error(`Failed to add payment for auto ${auto.auto_no}:`, err);
+                      }
+                    }
+
+                    // Refresh payments
+                    const [paymentsRes, summaryRes, availableRes] = await Promise.all([
+                      paymentService.getTicketPayments(selectedRequest.id),
+                      paymentService.getTicketSummary(selectedRequest.id),
+                      paymentService.getAvailableAutos(selectedRequest.id),
+                    ]);
+
+                    setPayments(paymentsRes.data);
+                    setPaymentSummary(summaryRes.data);
+                    setAvailableAutosForPayment(availableRes.data.available_autos || []);
+                    setCostPerDay('');
+                    alert(`✓ Payments added for ${addedCount} auto(s) at ₹${costPerDay}/day`);
+                  } catch (err) {
+                    alert(err.response?.data?.error || 'Failed to add payments');
+                  } finally {
+                    setPaymentLoading(false);
+                  }
+                }}
+                variant="success"
+                className="w-full"
+                disabled={paymentLoading || !costPerDay || availableAutosForPayment.length === 0}
+              >
+                {paymentLoading ? 'Adding...' : `+ Assign ₹${costPerDay || '0'}/day to All Remaining Autos`}
+              </Button>
+            </div>
+          </div>
+
+          {/* Existing Payments List */}
+          <div>
+            <h4 className="font-semibold text-gray-900 mb-3">
+              Assigned Payments ({payments.length}/{selectedRequest?.autos_required})
+            </h4>
+            
+            {payments.length === 0 ? (
+              <p className="text-sm text-gray-600 text-center py-4 bg-gray-50 rounded">
+                No payments added yet
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {payments.map((payment) => (
+                  <div key={payment.id} className="flex justify-between items-start p-3 border border-gray-200 rounded-lg bg-white hover:bg-gray-50">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{payment.auto_no}</p>
+                      <p className="text-xs text-gray-600">{payment.owner_name}</p>
+                      <div className="flex gap-4 mt-1">
+                        <span className="text-sm text-gray-700">
+                          <strong>₹{payment.cost_per_day}/day</strong>
+                        </span>
+                        <span className="text-sm text-gray-700">
+                          × {payment.total_days} days = <strong className="text-green-700">₹{payment.total_cost}</strong>
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => handleDeletePayment(payment.id)}
+                      variant="danger"
+                      className="text-xs px-2 py-1"
+                      disabled={paymentLoading}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         )}
       </Modal>
     </div>

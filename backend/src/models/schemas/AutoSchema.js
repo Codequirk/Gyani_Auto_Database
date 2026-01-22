@@ -5,6 +5,7 @@ const autoSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true, index: true },
   auto_no: { type: String, unique: true, required: true, index: true },
   owner_name: { type: String, required: true },
+  driver_phone: { type: String, required: true },
   area_id: { type: String, required: true, index: true },
   area_name: { type: String, default: null },
   status: {

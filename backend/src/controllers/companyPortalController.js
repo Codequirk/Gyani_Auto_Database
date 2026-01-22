@@ -16,6 +16,69 @@ const calculateDaysBetween = (startDate, endDate) => {
   return Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
 };
 
+/**
+ * Helper function to determine correct assignment status based on dates
+ * PREBOOKED: start_date > today
+ * ACTIVE: start_date <= today <= end_date
+ * COMPLETED: end_date < today
+ */
+function getCorrectAssignmentStatus(startDate, endDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  
+  if (end < today) {
+    return 'COMPLETED';
+  } else if (start > today) {
+    return 'PREBOOKED';
+  } else {
+    return 'ACTIVE';
+  }
+}
+
+/**
+ * Helper function to check if an auto has expired assignments and update auto status if needed
+ * Sets auto to IDLE if all assignments are COMPLETED
+ */
+async function updateAutoStatusIfExpired(autoId) {
+  try {
+    const assignments = await Assignment.findByAutoId(autoId);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Update status for all assignments based on dates
+    for (const assignment of assignments) {
+      const correctStatus = getCorrectAssignmentStatus(assignment.start_date, assignment.end_date);
+      if (assignment.status !== correctStatus) {
+        await Assignment.updateStatus(assignment.id, correctStatus);
+      }
+    }
+    
+    // Refresh assignments after status updates
+    const refreshedAssignments = await Assignment.findByAutoId(autoId);
+    
+    // Check remaining active/prebooked assignments
+    const hasActiveAssignment = refreshedAssignments.some(a => a.status === 'ACTIVE');
+    const hasPreAssignedAssignment = refreshedAssignments.some(a => a.status === 'PREBOOKED');
+    
+    if (hasActiveAssignment) {
+      await Auto.updateStatus(autoId, 'ASSIGNED');
+    } else if (hasPreAssignedAssignment) {
+      await Auto.updateStatus(autoId, 'PRE_ASSIGNED');
+    } else {
+      // All assignments are COMPLETED or none exist
+      await Auto.updateStatus(autoId, 'IDLE');
+    }
+  } catch (error) {
+    console.error(`Error updating auto status for ${autoId}:`, error);
+  }
+}
+
 exports.getCompanyProfile = async (req, res, next) => {
   try {
     const { company_id } = req.params;
@@ -44,6 +107,12 @@ exports.getCompanyAssignments = async (req, res, next) => {
 
     // Get all assignments for this company
     const assignments = await Assignment.findByCompanyId(company_id);
+    
+    // Check each assignment for expiration and update auto status if needed
+    const uniqueAutos = new Set(assignments.map(a => a.auto_id));
+    for (const autoId of uniqueAutos) {
+      await updateAutoStatusIfExpired(autoId);
+    }
     
     // Enrich with auto details and days remaining
     const enrichedAssignments = await Promise.all(
@@ -99,6 +168,13 @@ exports.getCompanyDashboard = async (req, res, next) => {
 
     // Get assignments
     const assignments = await Assignment.findByCompanyId(company_id);
+    
+    // Check each assignment for expiration and update auto status if needed
+    const uniqueAutos = new Set(assignments.map(a => a.auto_id));
+    for (const autoId of uniqueAutos) {
+      await updateAutoStatusIfExpired(autoId);
+    }
+    
     const activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
     const prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
 

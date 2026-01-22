@@ -97,6 +97,19 @@ export const companyTicketService = {
   update: (id, data) => api.patch(`/company-tickets/admin/${id}`, data),
 };
 
+export const paymentService = {
+  add: (data) => api.post('/payments/add', data),
+  getTicketPayments: (ticketId) => api.get(`/payments/ticket/${ticketId}`),
+  getTicketSummary: (ticketId) => api.get(`/payments/ticket/${ticketId}/summary`),
+  getAvailableAutos: (ticketId) => api.get(`/payments/ticket/${ticketId}/available-autos`),
+  update: (id, data) => api.patch(`/payments/${id}`, data),
+  delete: (id) => api.delete(`/payments/${id}`),
+  getCompanyPayments: (companyId) => api.get(`/payments/company/${companyId}`),
+  getByStatus: (status) => api.get(`/payments/status/${status}`),
+  bulkUpdateStatus: (data) => api.patch('/payments/bulk/update-status', data),
+  getAllPayments: () => api.get('/payments/all'),
+};
+
 export const companyPortalService = {
   getProfile: (companyId) => api.get(`/company-portal/${companyId}/profile`),
   updateProfile: (companyId, data) => api.patch(`/company-portal/${companyId}/profile`, data),

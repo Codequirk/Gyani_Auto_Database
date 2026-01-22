@@ -11,6 +11,7 @@ const autoRoutes = require('./routes/autoRoutes');
 const companyRoutes = require('./routes/companyRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const companyAuthRoutes = require('./routes/companyAuthRoutes');
 const companyPortalRoutes = require('./routes/companyPortalRoutes');
 const companyTicketRoutes = require('./routes/companyTicketRoutes');
@@ -35,6 +36,7 @@ app.use('/api/autos', autoRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Company Routes
 app.use('/api/company-auth', companyAuthRoutes);

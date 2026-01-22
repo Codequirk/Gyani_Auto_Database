@@ -10,6 +10,7 @@ const AddAutoPage = () => {
   const [formData, setFormData] = useState({
     auto_no: '',
     owner_name: '',
+    driver_phone: '',
     area_id: '',
     notes: '',
   });
@@ -53,6 +54,13 @@ const AddAutoPage = () => {
         [name]: cleanedValue,
       }));
       validateAutoNumber(cleanedValue);
+    } else if (name === 'driver_phone') {
+      // Allow only digits
+      const cleanedValue = value.replace(/[^0-9]/g, '').slice(0, 10);
+      setFormData((prev) => ({
+        ...prev,
+        [name]: cleanedValue,
+      }));
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -81,6 +89,16 @@ const AddAutoPage = () => {
       }
       if (!formData.owner_name.trim()) {
         setError('Owner name is required');
+        setLoading(false);
+        return;
+      }
+      if (!formData.driver_phone.trim()) {
+        setError('Driver phone number is required');
+        setLoading(false);
+        return;
+      }
+      if (!/^\d{10}$/.test(formData.driver_phone.trim())) {
+        setError('Driver phone number must be 10 digits');
         setLoading(false);
         return;
       }
@@ -172,6 +190,24 @@ const AddAutoPage = () => {
                 placeholder="e.g., John Doe"
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Driver Phone Number *
+              </label>
+              <Input
+                type="tel"
+                name="driver_phone"
+                value={formData.driver_phone}
+                onChange={handleChange}
+                placeholder="e.g., 9876543210"
+                maxLength="10"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                10-digit mobile number
+              </p>
             </div>
 
             <div>

@@ -160,10 +160,15 @@ const validateAutoNumber = (autoNo) => {
 
 exports.createAuto = async (req, res, next) => {
   try {
-    const { auto_no, owner_name, area_id, notes } = req.body;
+    const { auto_no, owner_name, driver_phone, area_id, notes } = req.body;
 
-    if (!auto_no || !owner_name || !area_id) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!auto_no || !owner_name || !driver_phone || !area_id) {
+      return res.status(400).json({ error: 'Missing required fields: auto_no, owner_name, driver_phone, area_id' });
+    }
+
+    // Validate driver phone
+    if (!/^\d{10}$/.test(driver_phone)) {
+      return res.status(400).json({ error: 'Driver phone must be 10 digits' });
     }
 
     // Validate auto number format
@@ -181,6 +186,7 @@ exports.createAuto = async (req, res, next) => {
     const auto = await Auto.create({
       auto_no: auto_no.toUpperCase().replace(/\s+/g, ''),
       owner_name,
+      driver_phone,
       area_id,
       notes,
       status: 'IDLE',
@@ -198,7 +204,7 @@ exports.createAuto = async (req, res, next) => {
 exports.updateAuto = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { owner_name, status, notes } = req.body;
+    const { owner_name, driver_phone, status, notes } = req.body;
 
     const auto = await Auto.findById(id);
     if (!auto) {
@@ -207,6 +213,13 @@ exports.updateAuto = async (req, res, next) => {
 
     const updateData = {};
     if (owner_name) updateData.owner_name = owner_name;
+    if (driver_phone) {
+      // Validate driver phone
+      if (!/^\d{10}$/.test(driver_phone)) {
+        return res.status(400).json({ error: 'Driver phone must be 10 digits' });
+      }
+      updateData.driver_phone = driver_phone;
+    }
     if (status) updateData.status = status;
     if (notes) updateData.notes = notes;
 

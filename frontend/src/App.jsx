@@ -10,6 +10,7 @@ import AdminsPage from './pages/AdminsPage';
 import CompaniesPage from './pages/CompaniesPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
 import CompanyRequestsPage from './pages/CompanyRequestsPage';
+import PaymentAdminPage from './pages/PaymentAdminPage';
 import './App.css';
 
 function ProtectedRoute({ children }) {
@@ -86,6 +87,14 @@ function AppContent() {
         element={
           <ProtectedRoute>
             <CompanyRequestsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/payments"
+        element={
+          <ProtectedRoute>
+            <PaymentAdminPage />
           </ProtectedRoute>
         }
       />

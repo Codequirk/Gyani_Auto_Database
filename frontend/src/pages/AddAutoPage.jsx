@@ -10,6 +10,7 @@ const AddAutoPage = () => {
   const [formData, setFormData] = useState({
     auto_no: '',
     owner_name: '',
+    driver_phone: '',
     area_id: '',
     notes: '',
   });
@@ -53,6 +54,13 @@ const AddAutoPage = () => {
         [name]: cleanedValue,
       }));
       validateAutoNumber(cleanedValue);
+    } else if (name === 'driver_phone') {
+      // Allow only digits (0-9), max 10 characters
+      const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+      setFormData((prev) => ({
+        ...prev,
+        [name]: digitsOnly,
+      }));
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -84,6 +92,16 @@ const AddAutoPage = () => {
         setLoading(false);
         return;
       }
+      if (!formData.driver_phone.trim()) {
+        setError('Driver phone number is required');
+        setLoading(false);
+        return;
+      }
+      if (!/^\d{10}$/.test(formData.driver_phone)) {
+        setError('Driver phone number must be 10 digits');
+        setLoading(false);
+        return;
+      }
       if (!formData.area_id) {
         setError('Area is required');
         setLoading(false);
@@ -93,12 +111,13 @@ const AddAutoPage = () => {
       const response = await autoService.create({
         auto_no: formData.auto_no.trim(),
         owner_name: formData.owner_name.trim(),
+        driver_phone: formData.driver_phone,
         area_id: formData.area_id,
         notes: formData.notes.trim(),
       });
 
       setSuccess('Auto added successfully!');
-      setFormData({ auto_no: '', owner_name: '', area_id: '', notes: '' });
+      setFormData({ auto_no: '', owner_name: '', driver_phone: '', area_id: '', notes: '' });
 
       // Redirect to autos list after 2 seconds
       setTimeout(() => {
@@ -172,6 +191,24 @@ const AddAutoPage = () => {
                 placeholder="e.g., John Doe"
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Driver Phone Number *
+              </label>
+              <Input
+                type="tel"
+                name="driver_phone"
+                value={formData.driver_phone}
+                onChange={handleChange}
+                placeholder="e.g., 9876543210"
+                maxLength="10"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                10-digit mobile number
+              </p>
             </div>
 
             <div>
