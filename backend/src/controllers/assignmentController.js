@@ -1,7 +1,8 @@
 const Assignment = require('../models/Assignment');
 const Auto = require('../models/Auto');
-const { computeDaysRemaining, calculateTotalDays, formatDateForDb, getDateNDaysFromNow } = require('../utils/dateUtils');
+const { computeDaysRemaining, computeDaysRemainingByStatus, calculateTotalDays, formatDateForDb, getDateNDaysFromNow } = require('../utils/dateUtils');
 const { validateAssignmentDates } = require('../utils/assignmentValidation');
+const { calculateAutoStatus } = require('../utils/statusCalculator');
 
 /**
  * Helper function to determine correct assignment status based on dates
@@ -69,17 +70,13 @@ async function updateAutoStatusIfExpired(autoId) {
     // Refresh assignments after status updates
     const refreshedAssignments = await Assignment.findByAutoId(autoId);
     
-    // Check remaining active/prebooked assignments
-    const hasActiveAssignment = refreshedAssignments.some(a => a.status === 'ACTIVE');
-    const hasPreAssignedAssignment = refreshedAssignments.some(a => a.status === 'PREBOOKED');
+    // Use the new calculateAutoStatus utility
+    const correctAutoStatus = calculateAutoStatus(refreshedAssignments);
     
-    if (hasActiveAssignment) {
-      await Auto.updateStatus(autoId, 'ASSIGNED');
-    } else if (hasPreAssignedAssignment) {
-      await Auto.updateStatus(autoId, 'PRE_ASSIGNED');
-    } else {
-      // All assignments are COMPLETED or none exist
-      await Auto.updateStatus(autoId, 'IDLE');
+    // Update auto status if it changed
+    const auto = await Auto.findById(autoId);
+    if (auto.status !== correctAutoStatus) {
+      await Auto.updateStatus(autoId, correctAutoStatus);
     }
   } catch (error) {
     console.error(`Error updating auto status for ${autoId}:`, error);
@@ -129,7 +126,6 @@ exports.createAssignment = async (req, res, next) => {
     const assignment = await Assignment.create({
       auto_id,
       company_id,
-      company_name: company.name,
       start_date: formatDateForDb(startDate),
       end_date: formatDateForDb(endDate),
       days: totalDays,
@@ -138,9 +134,9 @@ exports.createAssignment = async (req, res, next) => {
 
     // Update auto status based on assignment status
     if (assignmentStatus === 'PREBOOKED') {
-      await Auto.updateStatus(auto_id, 'PRE_ASSIGNED');
+      await Auto.updateStatus(auto_id, 'PREBOOKED');
     } else {
-      await Auto.updateStatus(auto_id, 'ASSIGNED');
+      await Auto.updateStatus(auto_id, 'ACTIVE');
     }
 
     res.status(201).json(assignment);
@@ -151,9 +147,11 @@ exports.createAssignment = async (req, res, next) => {
 
 exports.bulkAssignAutos = async (req, res, next) => {
   try {
+    console.log('[BULK_ASSIGN] Request body:', JSON.stringify(req.body, null, 2));
     const { auto_ids, company_id, days, start_date, is_prebooked } = req.body;
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days) {
+      console.log('[BULK_ASSIGN] Validation failed:', { auto_ids, company_id, days });
       return res.status(400).json({ error: 'Missing or invalid required fields' });
     }
 
@@ -166,12 +164,14 @@ exports.bulkAssignAutos = async (req, res, next) => {
     // Get company name
     const Company = require('../models/Company');
     const company = await Company.findById(company_id);
+    console.log('[BULK_ASSIGN] Company found:', company?.id, company?.name);
     if (!company) {
       return res.status(404).json({ error: 'Company not found' });
     }
 
     const startDate = start_date ? new Date(start_date) : new Date();
     const endDate = getDateNDaysFromNow(days, startDate);
+    console.log('[BULK_ASSIGN] Dates:', { start_date, startDate: startDate.toISOString(), endDate: endDate.toISOString(), totalDays: calculateTotalDays(startDate, endDate) });
     const totalDays = calculateTotalDays(startDate, endDate);
 
     // Validate dates for each auto
@@ -207,7 +207,6 @@ exports.bulkAssignAutos = async (req, res, next) => {
     const assignmentData = validAutoIds.map(auto_id => ({
       auto_id,
       company_id,
-      company_name: company.name,
       start_date: formatDateForDb(startDate),
       end_date: formatDateForDb(endDate),
       days: totalDays,
@@ -215,16 +214,25 @@ exports.bulkAssignAutos = async (req, res, next) => {
     }));
 
     const assignments = await Assignment.createBulk(assignmentData);
+    console.log('[BULK_ASSIGN] Assignments created successfully:', assignments.length);
 
     // Update auto statuses based on assignment status
-    if (assignmentStatus === 'PREBOOKED') {
-      await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PRE_ASSIGNED')));
-    } else {
-      await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ASSIGNED')));
+    try {
+      if (assignmentStatus === 'PREBOOKED') {
+        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PREBOOKED')));
+      } else {
+        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ACTIVE')));
+      }
+      console.log('[BULK_ASSIGN] Auto statuses updated successfully');
+    } catch (statusError) {
+      console.error('[BULK_ASSIGN] Warning: Auto status update failed (non-critical):', statusError.message);
+      // Don't throw - this is non-critical
     }
 
     res.status(201).json(assignments);
   } catch (error) {
+    console.error('[BULK_ASSIGN] Error:', error);
+    console.error('[BULK_ASSIGN] Error stack:', error.stack);
     next(error);
   }
 };
@@ -307,7 +315,7 @@ exports.getAssignmentsByCompany = async (req, res, next) => {
       return res.status(400).json({ error: 'Company ID is required' });
     }
 
-    // Get all assignments for this company (both active and prebooked)
+    // Get all assignments for this company (all statuses: ACTIVE, PREBOOKED, COMPLETED, IDLE)
     const assignments = await Assignment.findByCompanyId(companyId);
     
     // Check each assignment for expiration and update auto status if needed
@@ -318,7 +326,7 @@ exports.getAssignmentsByCompany = async (req, res, next) => {
     
     const enriched = assignments.map(a => ({
       ...a,
-      days_remaining: computeDaysRemaining(a.end_date),
+      days_remaining: computeDaysRemainingByStatus(a.start_date, a.end_date, a.status),
     }));
     
     res.json(enriched);
@@ -352,6 +360,50 @@ exports.getPriorityAssignments = async (req, res, next) => {
       };
     }));
 
+    res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getCompletedAssignments = async (req, res, next) => {
+  try {
+    const { autoId } = req.query;
+    
+    // Get completed assignments
+    const assignments = await Assignment.findCompleted(autoId || null);
+    
+    // Enrich with auto and company data
+    const Company = require('../models/Company');
+    const enriched = await Promise.all(assignments.map(async (assignment) => {
+      const auto = await Auto.findById(assignment.auto_id);
+      const company = await Company.findById(assignment.company_id);
+      
+      // Calculate days since completion
+      const endDate = new Date(assignment.end_date);
+      endDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysSinceCompletion = Math.floor((today - endDate) / (1000 * 60 * 60 * 24));
+      
+      // Calculate days until deletion (30 days after end_date)
+      const daysUntilDeletion = 30 - daysSinceCompletion;
+      
+      return {
+        id: assignment.id,
+        auto_id: assignment.auto_id,
+        auto_no: auto?.auto_no,
+        company_id: assignment.company_id,
+        company_name: company?.name || 'Unknown',
+        start_date: assignment.start_date,
+        end_date: assignment.end_date,
+        status: 'COMPLETED',
+        days_since_completion: daysSinceCompletion,
+        days_until_deletion: daysUntilDeletion,
+        created_at: assignment.created_at,
+      };
+    }));
+    
     res.json(enriched);
   } catch (error) {
     next(error);
@@ -425,11 +477,52 @@ exports.deleteAssignment = async (req, res, next) => {
   }
 };
 
+exports.deleteOldCompletedAssignments = async (req, res, next) => {
+  try {
+    console.log('[CLEANUP] Starting cleanup of old completed assignments...');
+    
+    // Find assignments eligible for deletion (30+ days after end_date)
+    const toDelete = await Assignment.findEligibleForDeletion();
+    console.log(`[CLEANUP] Found ${toDelete.length} assignments eligible for deletion`);
+    
+    if (toDelete.length === 0) {
+      return res.json({
+        message: 'No assignments to delete',
+        deletedCount: 0
+      });
+    }
+    
+    // Group by auto_id to update statuses later
+    const affectedAutoIds = new Set(toDelete.map(a => a.auto_id));
+    
+    // Delete the assignments
+    const deletedCount = await Assignment.deleteOldCompleted();
+    console.log(`[CLEANUP] Deleted ${deletedCount} old completed assignments`);
+    
+    // Update auto statuses for affected autos
+    for (const autoId of affectedAutoIds) {
+      await updateAutoStatusIfExpired(autoId);
+    }
+    
+    console.log(`[CLEANUP] Updated status for ${affectedAutoIds.size} autos`);
+    
+    res.json({
+      message: `Successfully deleted ${deletedCount} old completed assignments (30+ days after completion)`,
+      deletedCount,
+      affectedAutos: affectedAutoIds.size
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.bulkUpdateAssignments = async (req, res, next) => {
   try {
+    console.log('[BULK_UPDATE] Request body:', JSON.stringify(req.body, null, 2));
     const { auto_ids, company_id, days, start_date } = req.body;
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days || !start_date) {
+      console.log('[BULK_UPDATE] Validation failed:', { auto_ids, company_id, days, start_date });
       return res.status(400).json({ error: 'Missing or invalid required fields' });
     }
 
@@ -468,7 +561,6 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
     const assignmentData = validAutoIds.map(auto_id => ({
       auto_id,
       company_id,
-      company_name: company.name,
       start_date: formatDateForDb(startDate),
       end_date: formatDateForDb(endDate),
       days: totalDays,
@@ -476,12 +568,19 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
     }));
 
     const assignments = await Assignment.createBulk(assignmentData);
+    console.log('[BULK_UPDATE] Assignments created successfully:', assignments.length);
 
     // Update auto statuses
-    if (assignmentStatus === 'PREBOOKED') {
-      await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PRE_ASSIGNED')));
-    } else {
-      await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ASSIGNED')));
+    try {
+      if (assignmentStatus === 'PREBOOKED') {
+        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PREBOOKED')));
+      } else {
+        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ACTIVE')));
+      }
+      console.log('[BULK_UPDATE] Auto statuses updated successfully');
+    } catch (statusError) {
+      console.error('[BULK_UPDATE] Warning: Auto status update failed (non-critical):', statusError.message);
+      // Don't throw - assignments were already created
     }
 
     res.status(200).json({
@@ -490,6 +589,8 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
       deletedCount: Object.values(deletedCount).reduce((a, b) => a + b, 0)
     });
   } catch (error) {
+    console.error('[BULK_UPDATE] Error:', error);
+    console.error('[BULK_UPDATE] Error stack:', error.stack);
     next(error);
   }
 };

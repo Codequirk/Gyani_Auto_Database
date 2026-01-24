@@ -123,6 +123,11 @@ const AutosPage = () => {
     return end;
   };
 
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
   const isAutoAvailableInDateRange = (auto, newStartDate) => {
     // Convert new start date to proper format for comparison
     const newStart = new Date(newStartDate);
@@ -133,8 +138,8 @@ const AutosPage = () => {
       return true;
     }
 
-    // For ASSIGNED/PRE_ASSIGNED autos, check if their end_date is before the new start_date
-    if (auto.status === 'ASSIGNED' || auto.status === 'PRE_ASSIGNED') {
+    // For ACTIVE/PREBOOKED autos, check if their end_date is before the new start_date
+    if (auto.status === 'ACTIVE' || auto.status === 'PREBOOKED') {
       // Find if auto has any current/future assignments
       // The auto object should contain assignment info through the API
       // For now, we check if display_status shows availability
@@ -161,7 +166,7 @@ const AutosPage = () => {
     newStartDate.setHours(0, 0, 0, 0);
     
     // Get available autos for the selected area and date range
-    // Separate IDLE autos and ASSIGNED/PRE_ASSIGNED autos that are available
+    // Separate IDLE autos and ACTIVE/PREBOOKED autos that are available
     const idleAutos = autos?.filter(auto => 
       auto.area_id === wizardData.area_id && auto.status === 'IDLE'
     ) || [];
@@ -170,7 +175,7 @@ const AutosPage = () => {
       if (auto.area_id !== wizardData.area_id) return false;
       if (auto.status === 'IDLE') return false;
       
-      // For ASSIGNED/PRE_ASSIGNED autos, check if end_date (if available) is before new start_date
+      // For ACTIVE/PREBOOKED autos, check if end_date (if available) is before new start_date
       // The list endpoint returns assignments info, we need to check the most recent assignment's end_date
       if (auto.assignments && auto.assignments.length > 0) {
         // Get the most recent assignment
@@ -304,6 +309,18 @@ const AutosPage = () => {
       const startDate = assignData.start_date ? new Date(assignData.start_date) : new Date();
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + parseInt(assignData.days) - 1);
+
+      // FIRST: Validate that start date is not in the past
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkStartDate = new Date(startDate);
+      checkStartDate.setHours(0, 0, 0, 0);
+
+      if (checkStartDate < today) {
+        setError('Start date must be today or later. Cannot assign auto to past dates.');
+        setLoading(false);
+        return;
+      }
 
       // Validate each selected auto before submitting
       const autosToAssign = autos.filter(auto => selectedAutos.has(auto.id));
@@ -701,8 +718,8 @@ const AutosPage = () => {
             >
               <option value="">All Status</option>
               <option value="IDLE">Idle</option>
-              <option value="PRE_ASSIGNED">Pre-assigned</option>
-              <option value="ASSIGNED">Assigned</option>
+              <option value="PREBOOKED">Prebooked</option>
+              <option value="ACTIVE">Active</option>
             </select>
 
             {/* Available Areas Dropdown */}
@@ -929,9 +946,22 @@ const AutosPage = () => {
             <Input
               type="date"
               value={wizardData.start_date}
+              min={getTodayDate()}
               onChange={(e) => {
-                setWizardData({ ...wizardData, start_date: e.target.value });
-                setError('');
+                const selectedDate = new Date(e.target.value);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                selectedDate.setHours(0, 0, 0, 0);
+                
+                // Only allow dates that are today or later
+                if (selectedDate >= today) {
+                  setWizardData({ ...wizardData, start_date: e.target.value });
+                  setError('');
+                } else if (e.target.value === '') {
+                  // Allow clearing the field
+                  setWizardData({ ...wizardData, start_date: '' });
+                  setError('');
+                }
               }}
               className="mb-4"
             />
@@ -1148,6 +1178,8 @@ const AutosPage = () => {
         title="Bulk Assign Selected Autos"
       >
         <form onSubmit={handleBulkAssign}>
+          {error && <ErrorAlert message={error} />}
+          
           <select
             required
             value={assignData.company_id}
@@ -1173,11 +1205,30 @@ const AutosPage = () => {
             type="date"
             label="Start Date (Optional)"
             value={assignData.start_date}
-            onChange={(e) => setAssignData({ ...assignData, start_date: e.target.value })}
+            min={getTodayDate()}
+            onChange={(e) => {
+              const selectedDate = new Date(e.target.value);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              selectedDate.setHours(0, 0, 0, 0);
+              
+              // Only allow dates that are today or later
+              if (selectedDate >= today) {
+                setAssignData({ ...assignData, start_date: e.target.value });
+              } else if (e.target.value === '') {
+                // Allow clearing the field
+                setAssignData({ ...assignData, start_date: '' });
+              }
+            }}
           />
 
           <div className="flex gap-2 mt-4">
-            <Button type="submit" disabled={loading} className="flex-1">
+            <Button 
+              type="submit" 
+              disabled={loading || (assignData.start_date && new Date(assignData.start_date) < new Date(getTodayDate()))} 
+              className="flex-1"
+              title={assignData.start_date && new Date(assignData.start_date) < new Date(getTodayDate()) ? 'Start date cannot be in the past' : ''}
+            >
               {loading ? 'Assigning...' : 'Assign'}
             </Button>
             <Button

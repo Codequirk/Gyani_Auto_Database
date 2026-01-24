@@ -321,7 +321,7 @@ npm run test:coverage
 - `auto_no` (string, unique)
 - `owner_name` (string)
 - `area_id` (UUID, FK to areas)
-- `status` (enum: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ASSIGNED)
+- `status` (enum: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ACTIVE)
 - `last_updated_at` (timestamp)
 - `notes` (text)
 - `created_at`, `updated_at`, `deleted_at` (timestamps)

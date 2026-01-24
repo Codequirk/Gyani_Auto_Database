@@ -22,6 +22,27 @@ const validateNotInPast = (date) => {
 };
 
 /**
+ * Validates if start date is not in the past (can be today or later)
+ * @param {Date} startDate - The start date to check
+ * @returns {Object} { isValid: boolean, error: string }
+ */
+const validateStartDateNotInPast = (startDate) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const checkStartDate = new Date(startDate);
+  checkStartDate.setHours(0, 0, 0, 0);
+
+  if (checkStartDate < today) {
+    return {
+      isValid: false,
+      error: 'Start date must be today or later. Cannot assign auto to past dates.'
+    };
+  }
+
+  return { isValid: true };
+};
+
+/**
  * Validates assignment dates for IDLE autos
  * @param {Date} startDate - Assignment start date
  * @param {Date} endDate - Assignment end date
@@ -50,14 +71,20 @@ const validateIdleAutoAssignment = (startDate, endDate) => {
 };
 
 /**
- * Validates assignment dates for ASSIGNED/PRE_ASSIGNED autos
+ * Validates assignment dates for ACTIVE/PREBOOKED autos
  * @param {Date} newStartDate - New assignment start date
  * @param {Date} newEndDate - New assignment end date
  * @param {Date} existingEndDate - Existing assignment end date
  * @returns {Object} { isValid: boolean, error: string }
  */
 const validateAssignedAutoAssignment = (newStartDate, newEndDate, existingEndDate) => {
-  // First check if new dates are in the past
+  // First check if start date is not in the past
+  const startCheck = validateStartDateNotInPast(newStartDate);
+  if (!startCheck.isValid) {
+    return startCheck;
+  }
+
+  // Check if end date is not in the past
   const pastCheck = validateNotInPast(newEndDate);
   if (!pastCheck.isValid) {
     return pastCheck;
@@ -128,13 +155,19 @@ const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
   const autoStatus = autoData.status;
   const existingAssignments = autoData.assignments || [];
 
-  // Check for past dates (applies to all statuses)
+  // Check start date is not in the past (applies to all statuses)
+  const startCheck = validateStartDateNotInPast(newStartDate);
+  if (!startCheck.isValid) {
+    return startCheck;
+  }
+
+  // Check for past end dates (applies to all statuses)
   const pastCheck = validateNotInPast(newEndDate);
   if (!pastCheck.isValid) {
     return pastCheck;
   }
 
-  // IDLE status: start date must be >= today
+  // IDLE status: start date must be >= today (already checked above)
   if (autoStatus === 'IDLE') {
     const idleCheck = validateIdleAutoAssignment(newStartDate, newEndDate);
     if (!idleCheck.isValid) {
@@ -142,8 +175,8 @@ const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
     }
   }
 
-  // ASSIGNED/PRE_ASSIGNED: check against existing assignments
-  if (autoStatus === 'ASSIGNED' || autoStatus === 'PRE_ASSIGNED') {
+  // ACTIVE/PREBOOKED: check against existing assignments
+  if (autoStatus === 'ACTIVE' || autoStatus === 'PREBOOKED') {
     // Get the most recent active/prebooked assignment
     const activeAssignments = existingAssignments.filter(a => 
       a.status === 'ACTIVE' || a.status === 'PREBOOKED'
@@ -177,6 +210,7 @@ const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
 
 module.exports = {
   validateNotInPast,
+  validateStartDateNotInPast,
   validateIdleAutoAssignment,
   validateAssignedAutoAssignment,
   validateNoOverlap,

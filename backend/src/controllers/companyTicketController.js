@@ -134,7 +134,7 @@ exports.approveTicket = async (req, res, next) => {
     // Update company status to ACTIVE if still PENDING_APPROVAL
     const company = await Company.findById(ticket.company_id);
     if (company && company.company_status === 'PENDING_APPROVAL') {
-      await Company.update(ticket.company_id, { company_status: 'ACTIVE' });
+      await Company.update(ticket.company_id, { company_status: 'ACTIVE', status: 'ACTIVE' });
     }
 
     // Create Assignment records for the approved ticket
@@ -171,11 +171,9 @@ exports.approveTicket = async (req, res, next) => {
         const assignment = await Assignment.create({
           auto_id: autoId,
           company_id: ticket.company_id,
-          company_name: company?.name || 'Unknown Company',
           start_date: ticket.start_date,
           end_date: endDate,
           status: new Date(ticket.start_date) > new Date() ? 'PREBOOKED' : 'ACTIVE',
-          notes: `From ticket approval: ${ticket.notes || 'No notes'}`,
         });
         
         console.log(`[APPROVAL] Assignment created:`, assignment.id);
@@ -184,10 +182,19 @@ exports.approveTicket = async (req, res, next) => {
 
       console.log(`[APPROVAL] Total assignments created: ${assignments.length}`);
 
+      // Enrich assignments with company_name
+      const Company = require('../models/Company');
+      const enrichedAssignments = await Promise.all(
+        assignments.map(async (a) => {
+          const company = await Company.findById(a.company_id);
+          return { ...a, company_name: company?.name || 'Unknown' };
+        })
+      );
+
       res.json({
         ticket: approvedTicket,
-        assignments: assignments,
-        message: `Ticket approved, company activated, and ${assignments.length} assignment(s) created`,
+        assignments: enrichedAssignments,
+        message: `Ticket approved, company activated, and ${enrichedAssignments.length} assignment(s) created`,
       });
     } catch (assignmentError) {
       // Log assignment creation error but still return successful ticket approval
@@ -261,7 +268,7 @@ exports.updateTicket = async (req, res, next) => {
 /**
  * Suggest autos for a ticket based on:
  * 1. Priority: Idle autos first, then autos that are free on the requested dates
- * 2. Return metadata showing auto type (Idle vs Assigned)
+ * 2. Return metadata showing auto type (Idle vs Active)
  */
 exports.suggestAutosForTicket = async (req, res, next) => {
   try {
@@ -286,7 +293,7 @@ exports.suggestAutosForTicket = async (req, res, next) => {
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + ticket.days_required - 1);
 
-    // Categorize autos into IDLE and ASSIGNED (free on dates)
+    // Categorize autos into IDLE and ACTIVE (free on dates)
     const idleAutos = [];
     const assignableAutos = [];
 
@@ -315,19 +322,19 @@ exports.suggestAutosForTicket = async (req, res, next) => {
         idleAutos.push({
           ...auto,
           type: 'IDLE',
-          availability: 'Never assigned',
+          availability: 'Never been assigned',
         });
       } else {
         // Auto has assignments but none conflict with requested dates - it's ASSIGNABLE
         assignableAutos.push({
           ...auto,
-          type: 'ASSIGNED',
+          type: 'ACTIVE',
           availability: `Can be assigned on ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`,
         });
       }
     }
 
-    // Combine: IDLE first, then ASSIGNED
+    // Combine: IDLE first, then ACTIVE
     const suggestedAutos = [...idleAutos, ...assignableAutos];
 
     // Select the required number of autos
@@ -336,9 +343,9 @@ exports.suggestAutosForTicket = async (req, res, next) => {
 
     // Count by type
     const idleCount = selectedAutos.filter(a => a.type === 'IDLE').length;
-    const assignedCount = selectedAutos.filter(a => a.type === 'ASSIGNED').length;
+    const activeCount = selectedAutos.filter(a => a.type === 'ACTIVE').length;
 
-    console.log(`[SUGGEST] Ticket ${id}: Selected ${selectedAutoIds.length} autos (${idleCount} idle, ${assignedCount} assigned)`);
+    console.log(`[SUGGEST] Ticket ${id}: Selected ${selectedAutoIds.length} autos (${idleCount} idle, ${activeCount} active)`);
 
     res.json({
       ticket_id: id,
@@ -348,7 +355,7 @@ exports.suggestAutosForTicket = async (req, res, next) => {
       summary: {
         total_suggested: selectedAutos.length,
         idle_count: idleCount,
-        assigned_count: assignedCount,
+        active_count: activeCount,
         available_total: suggestedAutos.length,
       },
       dates: {

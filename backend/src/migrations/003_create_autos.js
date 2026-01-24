@@ -4,7 +4,7 @@ exports.up = function (knex) {
     table.string('auto_no').unique().notNullable();
     table.string('owner_name').notNullable();
     table.uuid('area_id').notNullable();
-    table.enum('status', ['IN_BUSINESS', 'OUT_OF_BUSINESS', 'IDLE', 'ASSIGNED']).defaultTo('IN_BUSINESS');
+    table.enum('status', ['IN_BUSINESS', 'OUT_OF_BUSINESS', 'IDLE', 'ACTIVE']).defaultTo('IN_BUSINESS');
     table.timestamp('last_updated_at').defaultTo(knex.fn.now());
     table.text('notes').nullable();
     table.timestamp('created_at').defaultTo(knex.fn.now());

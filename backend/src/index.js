@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const { connectDB } = require('./models/db');
+const { startCleanupScheduler } = require('./services/cleanupService');
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -18,9 +18,6 @@ const companyTicketRoutes = require('./routes/companyTicketRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
-
-// Connect to MongoDB
-connectDB();
 
 // Middleware
 app.use(cors());
@@ -50,16 +47,19 @@ app.get('/health', (req, res) => {
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+  res.status(404).json({ error: 'Route not found' });
 });
 
-// Error handler
+// Error handling middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+// Start cleanup scheduler
+startCleanupScheduler();
 
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✓ Server running on port ${PORT}`);
+  console.log(`✓ Using PostgreSQL database`);
 });
 
 module.exports = app;

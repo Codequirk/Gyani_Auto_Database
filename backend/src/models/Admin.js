@@ -1,41 +1,35 @@
-const AdminSchema = require('./schemas/AdminSchema');
+const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
 
 class Admin {
   static async findById(id) {
-    const admin = await AdminSchema.findOne({ id, deleted_at: null });
-    return admin ? admin.toObject() : null;
+    return db('admins').where({ id, deleted_at: null }).first();
   }
 
   static async findByEmail(email) {
-    const admin = await AdminSchema.findOne({ email, deleted_at: null });
-    return admin ? admin.toObject() : null;
+    return db('admins').where({ email, deleted_at: null }).first();
   }
 
   static async findAll() {
-    const admins = await AdminSchema.find({ deleted_at: null }).sort({ created_at: -1 });
-    return admins.map(a => a.toObject());
+    return db('admins').where({ deleted_at: null }).orderBy('created_at', 'desc');
   }
 
   static async create(data) {
     const id = uuidv4();
-    const admin = new AdminSchema({
-      _id: id,
+    await db('admins').insert({
       id,
       ...data,
       created_at: new Date(),
       updated_at: new Date(),
     });
-    await admin.save();
     return this.findById(id);
   }
 
   static async update(id, data) {
-    await AdminSchema.findOneAndUpdate(
-      { id },
-      { ...data, updated_at: new Date() },
-      { new: true }
-    );
+    await db('admins').where({ id }).update({
+      ...data,
+      updated_at: new Date(),
+    });
     return this.findById(id);
   }
 

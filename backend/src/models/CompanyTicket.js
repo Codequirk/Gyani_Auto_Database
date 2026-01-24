@@ -1,51 +1,43 @@
-const CompanyTicketSchema = require('./schemas/CompanyTicketSchema');
+const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
 
 class CompanyTicket {
   static async findById(id) {
-    const ticket = await CompanyTicketSchema.findOne({ id });
-    return ticket ? ticket.toObject() : null;
+    return db('company_tickets').where({ id }).first();
   }
 
   static async findByCompanyId(companyId) {
-    const tickets = await CompanyTicketSchema.find({ company_id: companyId }).sort({ created_at: -1 });
-    return tickets.map(t => t.toObject());
+    return db('company_tickets').where({ company_id: companyId }).orderBy('created_at', 'desc');
   }
 
   static async findPending() {
-    const tickets = await CompanyTicketSchema.find({ ticket_status: 'PENDING' }).sort({ created_at: -1 });
-    return tickets.map(t => t.toObject());
+    return db('company_tickets').where({ ticket_status: 'PENDING' }).orderBy('created_at', 'desc');
   }
 
   static async findAll() {
-    const tickets = await CompanyTicketSchema.find({}).sort({ created_at: -1 });
-    return tickets.map(t => t.toObject());
+    return db('company_tickets').orderBy('created_at', 'desc');
   }
 
   static async findByStatus(status) {
-    const tickets = await CompanyTicketSchema.find({ ticket_status: status }).sort({ created_at: -1 });
-    return tickets.map(t => t.toObject());
+    return db('company_tickets').where({ ticket_status: status }).orderBy('created_at', 'desc');
   }
 
   static async create(data) {
     const id = uuidv4();
-    const ticket = new CompanyTicketSchema({
-      _id: id,
+    await db('company_tickets').insert({
       id,
       ...data,
       created_at: new Date(),
       updated_at: new Date(),
     });
-    await ticket.save();
     return this.findById(id);
   }
 
   static async update(id, data) {
-    await CompanyTicketSchema.findOneAndUpdate(
-      { id },
-      { ...data, updated_at: new Date() },
-      { new: true }
-    );
+    await db('company_tickets').where({ id }).update({
+      ...data,
+      updated_at: new Date(),
+    });
     return this.findById(id);
   }
 
@@ -65,8 +57,7 @@ class CompanyTicket {
   }
 
   static async delete(id) {
-    const result = await CompanyTicketSchema.findOneAndDelete({ id });
-    return result;
+    return db('company_tickets').where({ id }).del();
   }
 }
 

@@ -56,7 +56,7 @@ const autoSchema = new mongoose.Schema({
   auto_no: { type: String, unique: true, required: true },
   owner_name: { type: String, required: true },
   area_id: { type: String, required: true },
-  status: { type: String, enum: ['IN_BUSINESS', 'OUT_OF_BUSINESS', 'IDLE', 'ASSIGNED'] },
+  status: { type: String, enum: ['IN_BUSINESS', 'OUT_OF_BUSINESS', 'IDLE', 'ACTIVE'] },
   last_updated_at: { type: Date, default: Date.now },
   notes: { type: String, default: null },
   created_at: { type: Date, default: Date.now },

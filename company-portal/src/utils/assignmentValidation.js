@@ -48,7 +48,7 @@ export const validateIdleAutoAssignment = (startDate, endDate) => {
 };
 
 /**
- * Validates assignment dates for ASSIGNED/PRE_ASSIGNED autos
+ * Validates assignment dates for ACTIVE/PREBOOKED autos
  * @param {Date} newStartDate - New assignment start date
  * @param {Date} newEndDate - New assignment end date
  * @param {Date} existingEndDate - Existing assignment end date
@@ -140,8 +140,8 @@ export const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
     }
   }
 
-  // ASSIGNED/PRE_ASSIGNED: check against existing assignments
-  if (autoStatus === 'ASSIGNED' || autoStatus === 'PRE_ASSIGNED') {
+  // ACTIVE/PREBOOKED: check against existing assignments
+  if (autoStatus === 'ACTIVE' || autoStatus === 'PREBOOKED') {
     // Get the most recent active/prebooked assignment
     const activeAssignments = existingAssignments.filter(a => 
       a.status === 'ACTIVE' || a.status === 'PREBOOKED'

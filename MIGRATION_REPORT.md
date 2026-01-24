@@ -253,7 +253,7 @@ npm run test:coverage     # With coverage report
 - [x] Update auto
 - [x] Soft delete auto
 - [x] View assignment history
-- [x] Status tracking (IN_BUSINESS, ASSIGNED, IDLE, OUT_OF_BUSINESS)
+- [x] Status tracking (IN_BUSINESS, ACTIVE, IDLE, OUT_OF_BUSINESS)
 
 ### Company Management ✅
 - [x] Create company

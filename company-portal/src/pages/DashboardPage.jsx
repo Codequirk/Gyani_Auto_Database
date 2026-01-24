@@ -83,15 +83,15 @@ const DashboardPage = () => {
 
           <Card>
             <div className="text-center">
-              <p className="text-gray-600 text-sm font-medium">Pre-assigned</p>
-              <p className="text-4xl font-bold text-purple-600 mt-2">{summary?.pre_assigned || 0}</p>
+              <p className="text-gray-600 text-sm font-medium">Prebooked</p>
+              <p className="text-4xl font-bold text-purple-600 mt-2">{summary?.prebooked || 0}</p>
             </div>
           </Card>
 
           <Card>
             <div className="text-center">
-              <p className="text-gray-600 text-sm font-medium">Assigned</p>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.assigned || 0}</p>
+              <p className="text-gray-600 text-sm font-medium">Active</p>
+              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.active || 0}</p>
             </div>
           </Card>
 
@@ -208,7 +208,7 @@ const DashboardPage = () => {
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
                       <td className="px-4 py-2">
-                        <Badge variant={auto.status === 'ASSIGNED' ? 'primary' : 'default'}>
+                        <Badge variant={auto.status === 'ACTIVE' ? 'primary' : 'default'}>
                           {auto.status}
                         </Badge>
                       </td>

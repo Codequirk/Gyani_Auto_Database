@@ -21,7 +21,7 @@ All requirements have been implemented and tested. Below is a comprehensive chec
 
 ### Core Features: Autos Management ✅
 - [x] Auto entity: id, auto_no, owner_name, area_id, status, last_updated_at, notes
-- [x] Status values: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ASSIGNED
+- [x] Status values: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ACTIVE
 - [x] Admin can add auto (auto_no + owner name + area)
 - [x] Auto CRUD operations
 - [x] Status management

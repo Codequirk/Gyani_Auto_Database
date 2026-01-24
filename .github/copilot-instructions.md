@@ -8,7 +8,7 @@
 
 **Core Domains:**
 - **Admin Panel**: Multi-admin management with role-based access (SUPER_ADMIN, ADMIN)
-- **Auto Management**: Vehicles tracked with areas, statuses (IDLE, ASSIGNED, PRE_ASSIGNED)
+- **Auto Management**: Vehicles tracked with areas, statuses (IDLE, ACTIVE, PREBOOKED)
 - **Assignment Workflow**: Auto assignments to companies with date ranges and priority tracking
 - **Company Portal**: Separate auth system for companies to view and manage assignments
 
@@ -91,8 +91,8 @@ npm run test:coverage
 
 ### Auto Statuses
 - `IDLE`: Not assigned to any company
-- `ASSIGNED`: Currently assigned with active date range
-- `PRE_ASSIGNED`: Reserved for future assignment
+- `ACTIVE`: Currently assigned with active date range
+- `PREBOOKED`: Reserved for future assignment
 
 ### Response Format
 Controllers return consistent JSON: `{ ...data, token? }` for auth endpoints, `{ list: [...], count }` for list endpoints

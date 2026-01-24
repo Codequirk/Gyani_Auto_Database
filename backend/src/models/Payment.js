@@ -1,35 +1,29 @@
-const PaymentSchema = require('./schemas/PaymentSchema');
+const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
 
 class Payment {
   static async findById(id) {
-    const payment = await PaymentSchema.findOne({ id });
-    return payment ? payment.toObject() : null;
+    return db('payments').where({ id }).first();
   }
 
   static async findByTicketId(ticketId) {
-    const payments = await PaymentSchema.find({ ticket_id: ticketId }).sort({ created_at: -1 });
-    return payments.map(p => p.toObject());
+    return db('payments').where({ ticket_id: ticketId }).orderBy('created_at', 'desc');
   }
 
   static async findByAutoId(autoId) {
-    const payments = await PaymentSchema.find({ auto_id: autoId }).sort({ created_at: -1 });
-    return payments.map(p => p.toObject());
+    return db('payments').where({ auto_id: autoId }).orderBy('created_at', 'desc');
   }
 
   static async findByCompanyId(companyId) {
-    const payments = await PaymentSchema.find({ company_id: companyId }).sort({ created_at: -1 });
-    return payments.map(p => p.toObject());
+    return db('payments').where({ company_id: companyId }).orderBy('created_at', 'desc');
   }
 
   static async findByStatus(status) {
-    const payments = await PaymentSchema.find({ payment_status: status }).sort({ created_at: -1 });
-    return payments.map(p => p.toObject());
+    return db('payments').where({ payment_status: status }).orderBy('created_at', 'desc');
   }
 
   static async findAll() {
-    const payments = await PaymentSchema.find({}).sort({ created_at: -1 });
-    return payments.map(p => p.toObject());
+    return db('payments').orderBy('created_at', 'desc');
   }
 
   static async create(data) {
@@ -38,20 +32,18 @@ class Payment {
     // Calculate total cost if not provided
     const totalCost = data.total_cost || (data.cost_per_day * data.total_days);
     
-    const payment = new PaymentSchema({
-      _id: id,
+    await db('payments').insert({
       id,
       ...data,
       total_cost: totalCost,
       created_at: new Date(),
       updated_at: new Date(),
     });
-    await payment.save();
     return this.findById(id);
   }
 
   static async update(id, data) {
-    const existingPayment = await PaymentSchema.findOne({ id });
+    const existingPayment = await this.findById(id);
     if (!existingPayment) {
       throw new Error('Payment not found');
     }
@@ -63,11 +55,10 @@ class Payment {
       data.total_cost = costPerDay * totalDays;
     }
 
-    await PaymentSchema.findOneAndUpdate(
-      { id },
-      { ...data, updated_at: new Date() },
-      { new: true }
-    );
+    await db('payments').where({ id }).update({
+      ...data,
+      updated_at: new Date(),
+    });
     return this.findById(id);
   }
 
@@ -76,13 +67,11 @@ class Payment {
   }
 
   static async delete(id) {
-    const result = await PaymentSchema.findOneAndDelete({ id });
-    return result;
+    return db('payments').where({ id }).del();
   }
 
   static async deleteByTicketId(ticketId) {
-    const result = await PaymentSchema.deleteMany({ ticket_id: ticketId });
-    return result;
+    return db('payments').where({ ticket_id: ticketId }).del();
   }
 
   static async getTotalCostByTicket(ticketId) {

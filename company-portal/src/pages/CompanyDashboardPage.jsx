@@ -4,7 +4,7 @@ import { useCompanyAuth } from '../context/CompanyAuthContext';
 import api from '../services/api';
 import { autoService } from '../services/api';
 import { Card, Button, Badge, LoadingSpinner, ErrorAlert, Modal, Input } from '../components/UI';
-import { computeDaysRemaining, formatDate } from '../utils/helpers';
+import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate } from '../utils/helpers';
 import CompanyNavbar from '../components/CompanyNavbar';
 import CompanyPortalCalendar from '../components/CompanyPortalCalendar';
 
@@ -91,6 +91,11 @@ const CompanyDashboardPage = () => {
       setSelectedAreaPinCode('');
     }
   }, [ticketData.area_id, areas]);
+
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
 
   useEffect(() => {
     if (!isAuthenticated || !company) {
@@ -375,6 +380,46 @@ const CompanyDashboardPage = () => {
           </Card>
         )}
 
+        {/* Completed Assignments */}
+        {dashboard && dashboard.completed_assignments && dashboard.completed_assignments.length > 0 && (
+          <Card className="mb-8">
+            <h2 className="text-xl font-bold mb-4 flex items-center">
+              <Badge className="bg-gray-200 text-gray-800">COMPLETED</Badge>
+              <span className="ml-2">Completed Assignments</span>
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Auto No</th>
+                    <th className="px-4 py-2 text-left">Owner</th>
+                    <th className="px-4 py-2 text-left">Area</th>
+                    <th className="px-4 py-2 text-left">Start Date</th>
+                    <th className="px-4 py-2 text-left">End Date</th>
+                    <th className="px-4 py-2 text-left">Total Days</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.completed_assignments.map((assignment) => (
+                    <tr key={assignment.id} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-2 font-medium">{assignment.auto_no}</td>
+                      <td className="px-4 py-2">{assignment.owner_name}</td>
+                      <td className="px-4 py-2">{assignment.area_name}</td>
+                      <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
+                      <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
+                      <td className="px-4 py-2">{assignment.days}</td>
+                      <td className="px-4 py-2">
+                        <Badge className="bg-gray-200 text-gray-800">{assignment.status}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
         {/* Pending Tickets */}
         {dashboard && dashboard.pending_tickets.length > 0 && (
           <Card className="mb-8">
@@ -456,7 +501,21 @@ const CompanyDashboardPage = () => {
             type="date"
             label="Start Date"
             value={ticketData.start_date}
-            onChange={(e) => setTicketData({...ticketData, start_date: e.target.value})}
+            min={getTodayDate()}
+            onChange={(e) => {
+              const selectedDate = new Date(e.target.value);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              selectedDate.setHours(0, 0, 0, 0);
+              
+              // Only allow dates that are today or later
+              if (selectedDate >= today) {
+                setTicketData({...ticketData, start_date: e.target.value});
+              } else if (e.target.value === '') {
+                // Allow clearing the field
+                setTicketData({...ticketData, start_date: ''});
+              }
+            }}
             required
           />
           <div>

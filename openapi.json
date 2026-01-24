@@ -108,7 +108,7 @@
           {
             "name": "status",
             "in": "query",
-            "schema": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ASSIGNED"] },
+            "schema": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ACTIVE"] },
             "description": "Filter by status"
           }
         ],
@@ -329,7 +329,7 @@
           "owner_name": { "type": "string" },
           "area_id": { "type": "string", "format": "uuid" },
           "area_name": { "type": "string" },
-          "status": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ASSIGNED"] },
+          "status": { "type": "string", "enum": ["IN_BUSINESS", "OUT_OF_BUSINESS", "IDLE", "ACTIVE"] },
           "last_updated_at": { "type": "string", "format": "date-time" },
           "notes": { "type": "string" },
           "current_company": { "type": "string" },

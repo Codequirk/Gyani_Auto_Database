@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { companyService, assignmentService, autoService, areaService } from '../services/api';
 import { Card, Button, LoadingSpinner, ErrorAlert, Badge } from '../components/UI';
-import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
+import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 import AssignmentCalendar from '../components/AssignmentCalendar';
 
@@ -107,10 +107,10 @@ const CompanyDetailPage = () => {
     };
   });
 
-  // Filter assignments by selected area
+  // Filter assignments by selected area (excluding COMPLETED)
   const filteredAssignments = selectedAreaForFilter
-    ? enrichedAssignments.filter(a => a.area_id === selectedAreaForFilter)
-    : enrichedAssignments;
+    ? enrichedAssignments.filter(a => a.area_id === selectedAreaForFilter && a.status !== 'COMPLETED')
+    : enrichedAssignments.filter(a => a.status !== 'COMPLETED');
 
   // Get unique areas from assignments for the dropdown
   const uniqueAreas = [...new Map(
@@ -365,6 +365,78 @@ const CompanyDetailPage = () => {
             </div>
           )}
         </Card>
+
+        {/* Completed Assignments Panel */}
+        {enrichedAssignments && enrichedAssignments.filter(a => a.status === 'COMPLETED').length > 0 && (
+          <Card>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">
+              Completed Assignments ({enrichedAssignments.filter(a => a.status === 'COMPLETED').length})
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-100 border-b">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Auto Number
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Owner Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Area
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Start Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      End Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Total Days
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enrichedAssignments.filter(a => a.status === 'COMPLETED').map((assignment) => (
+                    <tr key={assignment.id} className="border-b border-gray-200 hover:bg-gray-50">
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">
+                        <button
+                          onClick={() => navigate(`/autos/${assignment.auto_id}`)}
+                          className="text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          {assignment.auto_no}
+                        </button>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {assignment.owner_name}
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {assignment.area_name}
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {formatDate(assignment.start_date)}
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {formatDate(assignment.end_date)}
+                      </td>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">
+                        {assignment.calculated_days}
+                      </td>
+                      <td className="px-6 py-3 text-sm">
+                        <Badge className="bg-gray-200 text-gray-800">
+                          {assignment.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
         {/* Calendar Modal */}
         {showCalendarModal && (

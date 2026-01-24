@@ -64,12 +64,12 @@ async function updateAutoStatusIfExpired(autoId) {
     
     // Check remaining active/prebooked assignments
     const hasActiveAssignment = refreshedAssignments.some(a => a.status === 'ACTIVE');
-    const hasPreAssignedAssignment = refreshedAssignments.some(a => a.status === 'PREBOOKED');
+    const hasPreBookedAssignment = refreshedAssignments.some(a => a.status === 'PREBOOKED');
     
     if (hasActiveAssignment) {
-      await Auto.updateStatus(autoId, 'ASSIGNED');
-    } else if (hasPreAssignedAssignment) {
-      await Auto.updateStatus(autoId, 'PRE_ASSIGNED');
+      await Auto.updateStatus(autoId, 'ACTIVE');
+    } else if (hasPreBookedAssignment) {
+      await Auto.updateStatus(autoId, 'PREBOOKED');
     } else {
       // All assignments are COMPLETED or none exist
       await Auto.updateStatus(autoId, 'IDLE');
@@ -177,6 +177,7 @@ exports.getCompanyDashboard = async (req, res, next) => {
     
     const activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
     const prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
+    const completedAssignments = assignments.filter(a => a.status === 'COMPLETED');
 
     // Enrich ALL assignments with auto details (both ACTIVE and PREBOOKED)
     const enrichAssignments = async (assignmentList) => {
@@ -217,6 +218,9 @@ exports.getCompanyDashboard = async (req, res, next) => {
     // Enrich prebooked assignments with auto details
     const enrichedPrebooked = await enrichAssignments(prebookedAssignments);
 
+    // Enrich completed assignments with auto details
+    const enrichedCompleted = await enrichAssignments(completedAssignments);
+
     // Get tickets for this company
     const tickets = await CompanyTicket.findByCompanyId(company_id);
     const pendingTickets = tickets.filter(t => t.ticket_status === 'PENDING');
@@ -235,11 +239,13 @@ exports.getCompanyDashboard = async (req, res, next) => {
         total_assignments: assignments.length,
         active_assignments: activeAssignments.length,
         prebooked_assignments: prebookedAssignments.length,
+        completed_assignments: completedAssignments.length,
         priority_count: priorityAssignments.length,
         pending_tickets: pendingTickets.length,
       },
       active_assignments: enrichedActive,
       prebooked_assignments: enrichedPrebooked,
+      completed_assignments: enrichedCompleted,
       priority_assignments: priorityAssignments,
       tickets: tickets,
       pending_tickets: pendingTickets,
@@ -263,7 +269,7 @@ exports.updateCompanyProfile = async (req, res, next) => {
     if (contact_person) updateData.contact_person = contact_person;
     if (phone_number) {
       updateData.phone_number = phone_number;
-      updateData.phone_numbers = [phone_number];
+      updateData.phone_numbers = JSON.stringify([phone_number]);
     }
 
     const updated = await Company.update(company_id, updateData);

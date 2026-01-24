@@ -1,28 +1,9 @@
-const mongoose = require('mongoose');
+require('dotenv').config();
 
-const connectDB = async () => {
-  try {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/admin_panel_db';
-    
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    
-    console.log('✓ MongoDB connected successfully');
-  } catch (error) {
-    console.error('✗ MongoDB connection failed:', error.message);
-    process.exit(1);
-  }
-};
+const knex = require('knex');
+const config = require('../../knexfile');
 
-const disconnectDB = async () => {
-  try {
-    await mongoose.disconnect();
-    console.log('✓ MongoDB disconnected');
-  } catch (error) {
-    console.error('✗ MongoDB disconnection failed:', error.message);
-  }
-};
+const environment = process.env.NODE_ENV || 'development';
+const db = knex(config[environment]);
 
-module.exports = { connectDB, disconnectDB };
+module.exports = db;

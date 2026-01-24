@@ -134,7 +134,7 @@ Connect/
 
 ### ✅ Auto Management
 - [x] Create/Read/Update/Delete autos
-- [x] Auto status: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ASSIGNED
+- [x] Auto status: IN_BUSINESS, OUT_OF_BUSINESS, IDLE, ACTIVE
 - [x] Search by auto_no (partial) or owner_name
 - [x] Filter by area, status
 - [x] Soft delete with audit trail

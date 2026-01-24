@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { autoService, assignmentService, companyService } from '../services/api';
 import { Card, Button, Badge, ErrorAlert, LoadingSpinner, Input, Modal } from '../components/UI';
-import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
+import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 import AssignmentCalendar from '../components/AssignmentCalendar';
 
@@ -95,8 +95,10 @@ const AutoDetailPage = () => {
   if (error) return <ErrorAlert message={error} />;
   if (!auto) return <ErrorAlert message="Auto not found" />;
 
-  // Get active/current assignment
-  const currentAssignment = auto.assignments?.find(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED');
+  // Get active/current assignment - the one with the earliest start date
+  const currentAssignment = auto.assignments
+    ?.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED')
+    .sort((a, b) => new Date(a.start_date) - new Date(b.start_date))[0];
 
   // Helper function to check if two date ranges overlap
   const datesOverlap = (start1, end1, start2, end2) => {
@@ -285,6 +287,10 @@ const AutoDetailPage = () => {
                 <p className="text-lg font-medium">{auto.owner_name}</p>
               </div>
               <div>
+                <p className="text-gray-600 text-sm">Driver Phone</p>
+                <p className="text-lg font-medium">{auto.driver_phone || 'N/A'}</p>
+              </div>
+              <div>
                 <p className="text-gray-600 text-sm">Area</p>
                 <p className="text-lg font-medium">{auto.area_name || 'N/A'}</p>
               </div>
@@ -353,10 +359,10 @@ const AutoDetailPage = () => {
             </div>
           </Card>
 
-          {/* All Assignments History */}
-          {auto.assignments && auto.assignments.length > 0 && (
+          {/* Assignment Status Panel - ACTIVE and PREBOOKED only */}
+          {auto.assignments && auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).length > 0 && (
             <Card>
-              <h2 className="text-xl font-semibold mb-4">Assignment History</h2>
+              <h2 className="text-xl font-semibold mb-4">Assignment Status</h2>
               {editSuccess && (
                 <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
                   {editSuccess}
@@ -376,15 +382,15 @@ const AutoDetailPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {auto.assignments.map((assignment) => (
+                    {auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).map((assignment) => (
                       <tr key={assignment.id} className="border-t hover:bg-gray-50">
                         <td className="px-4 py-2">{assignment.company_name}</td>
                         <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
                         <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
                         <td className="px-4 py-2">{assignment.days || '-'}</td>
                         <td className="px-4 py-2">
-                          <span className={assignment.days_remaining <= 2 && assignment.days_remaining > 0 ? 'font-bold text-red-600' : ''}>
-                            {assignment.days_remaining !== null ? `${assignment.days_remaining}` : '-'}
+                          <span className={computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) <= 2 && computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) > 0 ? 'font-bold text-red-600' : ''}>
+                            {assignment.days_remaining !== null ? `${computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status)}` : '-'}
                           </span>
                         </td>
                         <td className="px-4 py-2">
@@ -399,6 +405,41 @@ const AutoDetailPage = () => {
                             onDelete={handleDeleteAssignment}
                             isLoading={editLoading}
                           />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {/* Completed Assignments Panel */}
+          {auto.assignments && auto.assignments.filter(a => a.status === 'COMPLETED').length > 0 && (
+            <Card>
+              <h2 className="text-xl font-semibold mb-4">Completed</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100 border-b">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Company</th>
+                      <th className="px-4 py-2 text-left">Start Date</th>
+                      <th className="px-4 py-2 text-left">End Date</th>
+                      <th className="px-4 py-2 text-left">Total Days</th>
+                      <th className="px-4 py-2 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auto.assignments.filter(a => a.status === 'COMPLETED').map((assignment) => (
+                      <tr key={assignment.id} className="border-t hover:bg-gray-50">
+                        <td className="px-4 py-2">{assignment.company_name}</td>
+                        <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
+                        <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
+                        <td className="px-4 py-2">{assignment.days || '-'}</td>
+                        <td className="px-4 py-2">
+                          <Badge className="bg-gray-200 text-gray-800">
+                            {assignment.status}
+                          </Badge>
                         </td>
                       </tr>
                     ))}

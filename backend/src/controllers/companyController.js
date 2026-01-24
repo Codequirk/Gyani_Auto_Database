@@ -60,15 +60,15 @@ exports.createCompany = async (req, res, next) => {
       name,
       contact_person,
       email: normalizedEmails[0],
-      emails: normalizedEmails,
-      phone_numbers: phone_numbers || [],
+      emails: JSON.stringify(normalizedEmails),
+      phone_numbers: JSON.stringify(phone_numbers || []),
       password_hash: hashedPassword,
       required_autos: 0,
-      area_id: 'default',
+      area_id: null,
       days_requested: 0,
       status: status || 'ACTIVE',
       company_status: 'ACTIVE',
-      created_by_admin_id: req.admin?.id || 'system',
+      created_by_admin_id: req.admin?.id || null,
     });
 
     res.status(201).json(company);
@@ -93,9 +93,9 @@ exports.updateCompany = async (req, res, next) => {
     if (emails && emails.length > 0) {
       const normalizedEmails = emails.map(e => e.toLowerCase().trim());
       updateData.email = normalizedEmails[0];
-      updateData.emails = normalizedEmails;
+      updateData.emails = JSON.stringify(normalizedEmails);
     }
-    if (phone_numbers) updateData.phone_numbers = phone_numbers;
+    if (phone_numbers) updateData.phone_numbers = JSON.stringify(phone_numbers);
     if (password && password.trim()) {
       if (password.length < 6) {
         return res.status(400).json({ error: 'Password must be at least 6 characters' });

@@ -1,65 +1,57 @@
-const AssignmentSchema = require('./schemas/AssignmentSchema');
+const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
+const { isCompletedAssignment, shouldDeleteAssignment } = require('../utils/statusCalculator');
 
 class Assignment {
   static async findById(id) {
-    const assignment = await AssignmentSchema.findOne({ id });
-    return assignment ? assignment.toObject() : null;
+    return db('assignments').where({ id }).first();
   }
 
   static async findByAutoAndCompany(autoId, companyId) {
-    const assignment = await AssignmentSchema.findOne({ auto_id: autoId, company_id: companyId, status: 'ACTIVE' });
-    return assignment ? assignment.toObject() : null;
+    return db('assignments').where({ auto_id: autoId, company_id: companyId, status: 'ACTIVE' }).first();
   }
 
   static async findActive() {
-    const assignments = await AssignmentSchema.find({ status: 'ACTIVE' }).sort({ start_date: -1 });
-    return assignments.map(a => a.toObject());
+    return db('assignments').where({ status: 'ACTIVE' }).orderBy('start_date', 'desc');
   }
 
   static async findByAutoId(autoId) {
-    const assignments = await AssignmentSchema.find({ auto_id: autoId }).sort({ start_date: -1 });
-    return assignments.map(a => a.toObject());
+    return db('assignments').where({ auto_id: autoId }).orderBy('start_date', 'desc');
   }
 
   static async findByCompanyId(companyId) {
-    const assignments = await AssignmentSchema.find({ company_id: companyId }).sort({ start_date: -1 });
-    return assignments.map(a => a.toObject());
+    return db('assignments').where({ company_id: companyId }).orderBy('start_date', 'desc');
   }
 
   static async findCurrentActiveAssignment(autoId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const assignment = await AssignmentSchema.findOne({
-      auto_id: autoId,
-      status: { $in: ['ACTIVE', 'PREBOOKED'] },
-      start_date: { $lte: today },
-      end_date: { $gte: today }
-    }).sort({ start_date: -1 });
-
-    return assignment ? assignment.toObject() : null;
+    return db('assignments')
+      .where({ auto_id: autoId })
+      .whereIn('status', ['ACTIVE', 'PREBOOKED'])
+      .where('start_date', '<=', today)
+      .where('end_date', '>=', today)
+      .orderBy('start_date', 'desc')
+      .first();
   }
 
   static async create(data) {
     const id = uuidv4();
-    const assignment = new AssignmentSchema({
-      _id: id,
+    await db('assignments').insert({
       id,
       ...data,
       created_at: new Date(),
       updated_at: new Date(),
     });
-    await assignment.save();
     return this.findById(id);
   }
 
   static async update(id, data) {
-    await AssignmentSchema.findOneAndUpdate(
-      { id },
-      { ...data, updated_at: new Date() },
-      { new: true }
-    );
+    await db('assignments').where({ id }).update({
+      ...data,
+      updated_at: new Date(),
+    });
     return this.findById(id);
   }
 
@@ -73,34 +65,78 @@ class Assignment {
     const results = [];
     for (const assignment of assignments) {
       const id = uuidv4();
-      const newAssignment = new AssignmentSchema({
-        _id: id,
+      await db('assignments').insert({
         id,
         ...assignment,
         created_at: new Date(),
         updated_at: new Date(),
       });
-      await newAssignment.save();
-      results.push(newAssignment);
+      results.push(await this.findById(id));
     }
     
     return results;
   }
 
   static async deleteByAutoId(autoId) {
-    const result = await AssignmentSchema.deleteMany({ auto_id: autoId });
-    return result;
+    return db('assignments').where({ auto_id: autoId }).del();
   }
 
   static async deleteByCompanyId(companyId) {
-    const result = await AssignmentSchema.deleteMany({ company_id: companyId });
-    return result;
+    return db('assignments').where({ company_id: companyId }).del();
   }
 
   static async deleteById(id) {
-    const result = await AssignmentSchema.findOneAndDelete({ id });
-    return result;
+    return db('assignments').where({ id }).del();
   }
-}
+
+  /**
+   * Find completed assignments (end_date < today)
+   * @param {string} autoId - Optional: filter by auto_id
+   * @returns {Array} - Completed assignments
+   */
+  static async findCompleted(autoId = null) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let query = db('assignments').where('end_date', '<', today);
+    if (autoId) {
+      query = query.where({ auto_id: autoId });
+    }
+    return query.orderBy('end_date', 'desc');
+  }
+
+  /**
+   * Find assignments eligible for deletion (30 days after end_date)
+   * @returns {Array} - Assignments to delete
+   */
+  static async findEligibleForDeletion() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Assignments where end_date + 30 days <= today
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    return db('assignments')
+      .where('end_date', '<=', thirtyDaysAgo)
+      .orderBy('end_date', 'asc');
+  }
+
+  /**
+   * Delete old completed assignments (30 days after completion)
+   * @returns {number} - Count of deleted assignments
+   */
+  static async deleteOldCompleted() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Assignments where end_date + 30 days <= today
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    return db('assignments')
+      .where('end_date', '<=', thirtyDaysAgo)
+      .del();
+  }}
 
 module.exports = Assignment;

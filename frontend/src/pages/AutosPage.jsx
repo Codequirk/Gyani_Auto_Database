@@ -86,6 +86,7 @@ const AutosPage = () => {
   const [showAvailableAreas, setShowAvailableAreas] = useState(false);
 
   const debounceTimer = useRef(null);
+  const areasDropdownRef = useRef(null);
   const [assignData, setAssignData] = useState({ company_id: '', days: '', start_date: '' });
   const [bulkEditData, setBulkEditData] = useState({ company_id: '', days: '', start_date: '' });
   const [wizardData, setWizardData] = useState({ 
@@ -93,13 +94,14 @@ const AutosPage = () => {
     area_id: '', 
     days: '', 
     start_date: '',
+    numAutos: 0,
     selectedAutoIds: new Set()
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [availableAutosInDateRange, setAvailableAutosInDateRange] = useState([]);
-  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: area, 3: days/date, 4: select autos
+  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: days/date, 3: area, 4: select autos
   const [wizardSearchAutos, setWizardSearchAutos] = useState('');
   const [showAddAreaModal, setShowAddAreaModal] = useState(false);
   const [newArea, setNewArea] = useState({ name: '', pin_code: '' });
@@ -123,6 +125,20 @@ const AutosPage = () => {
     return () => clearTimeout(debounceTimer.current);
   }, [search]);
 
+  // Handle click outside areas dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (areasDropdownRef.current && !areasDropdownRef.current.contains(event.target)) {
+        setShowAvailableAreas(false);
+      }
+    }
+
+    if (showAvailableAreas) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAvailableAreas]);
+
   const { data: autos, loading: autosLoading, refetch: refetchAutos } = useFetch(
     () => autoService.list({ search: debouncedSearch, area_id: selectedArea, status: selectedStatus }),
     [debouncedSearch, selectedArea, selectedStatus]
@@ -144,8 +160,13 @@ const AutosPage = () => {
   const calculateEndDate = (startDate, days) => {
     const start = new Date(startDate);
     const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(days));
+    end.setDate(end.getDate() + parseInt(days) - 1);
     return end;
+  };
+
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   };
 
   const isAutoAvailableInDateRange = (auto, newStartDate) => {
@@ -158,8 +179,8 @@ const AutosPage = () => {
       return true;
     }
 
-    // For ASSIGNED/PRE_ASSIGNED autos, check if their end_date is before the new start_date
-    if (auto.status === 'ASSIGNED' || auto.status === 'PRE_ASSIGNED') {
+    // For ACTIVE/PREBOOKED autos, check if their end_date is before the new start_date
+    if (auto.status === 'ACTIVE' || auto.status === 'PREBOOKED') {
       // Find if auto has any current/future assignments
       // The auto object should contain assignment info through the API
       // For now, we check if display_status shows availability
@@ -185,18 +206,14 @@ const AutosPage = () => {
     const newStartDate = new Date(wizardData.start_date);
     newStartDate.setHours(0, 0, 0, 0);
     
-    // Get available autos for the selected area and date range
-    // Separate IDLE autos and ASSIGNED/PRE_ASSIGNED autos that are available
-    const idleAutos = autos?.filter(auto => 
-      auto.area_id === wizardData.area_id && auto.status === 'IDLE'
-    ) || [];
+    // Get available autos for all areas and the selected date range
+    // Separate IDLE autos and ACTIVE/PREBOOKED autos that are available
+    const idleAutos = autos?.filter(auto => auto.status === 'IDLE') || [];
     
     const availableNonIdleAutos = autos?.filter(auto => {
-      if (auto.area_id !== wizardData.area_id) return false;
       if (auto.status === 'IDLE') return false;
       
-      // For ASSIGNED/PRE_ASSIGNED autos, check if end_date (if available) is before new start_date
-      // The list endpoint returns assignments info, we need to check the most recent assignment's end_date
+      // For ACTIVE/PREBOOKED autos, check if end_date (if available) is before new start_date
       if (auto.assignments && auto.assignments.length > 0) {
         // Get the most recent assignment
         const sortedAssignments = [...auto.assignments].sort(
@@ -219,13 +236,8 @@ const AutosPage = () => {
     // Combine with IDLE autos first, then available non-IDLE autos
     const available = [...idleAutos, ...availableNonIdleAutos];
     
-    // Auto-select top 4 autos (prioritizing IDLE)
-    const topFourIds = new Set(available.slice(0, 4).map(auto => auto.id));
-    
     setAvailableAutosInDateRange(available);
-    setWizardData({ ...wizardData, selectedAutoIds: topFourIds });
-    setWizardSearchAutos('');
-    setWizardStep(4);
+    setWizardStep(3);
   };
 
   const toggleAutoSelection = (autoId) => {
@@ -243,16 +255,107 @@ const AutosPage = () => {
       setError('Please select a company');
       return;
     }
-    if (wizardStep === 2 && !wizardData.area_id) {
-      setError('Please select an area');
+    if (wizardStep === 2 && (!wizardData.start_date || !wizardData.days)) {
+      setError('Please select start date and number of days');
       return;
     }
 
     setError('');
     if (wizardStep < 3) {
-      setWizardStep(wizardStep + 1);
-    } else if (wizardStep === 3) {
-      handleDateAndDaysSubmit();
+      if (wizardStep === 2) {
+        handleDateAndDaysSubmit();
+      } else if (wizardStep === 3) {
+        if (!wizardData.area_id || !wizardData.numAutos) {
+          setError('Please select an area and number of autos');
+          return;
+        }
+        // Auto-assign the selected number of autos
+        handleWizardSubmit();
+      } else {
+        setWizardStep(wizardStep + 1);
+      }
+    }
+  };
+
+  const handleWizardSubmit = async () => {
+    if (!wizardData.area_id) {
+      setError('Please select an area');
+      return;
+    }
+
+    if (!wizardData.numAutos || wizardData.numAutos <= 0) {
+      setError('Please specify number of autos to assign');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    try {
+      const startDate = wizardData.start_date ? new Date(wizardData.start_date) : new Date();
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + parseInt(wizardData.days));
+
+      // Get autos for the selected area
+      const areaAutos = availableAutosInDateRange.filter(auto => auto.area_id === wizardData.area_id);
+      
+      // Prioritize IDLE autos first, then available non-IDLE autos
+      const idleAutos = areaAutos.filter(a => a.status === 'IDLE');
+      const availableNonIdleAutos = areaAutos.filter(a => a.status !== 'IDLE');
+      const prioritizedAutos = [...idleAutos, ...availableNonIdleAutos];
+
+      // Take the first numAutos
+      const autosToAssign = prioritizedAutos.slice(0, parseInt(wizardData.numAutos));
+
+      if (autosToAssign.length === 0) {
+        setError('No autos available in selected area for the date range');
+        setLoading(false);
+        return;
+      }
+
+      // Validate each auto before submitting
+      const validationErrors = [];
+      for (const auto of autosToAssign) {
+        const validation = validateAssignmentDates(auto, startDate, endDate);
+        if (!validation.isValid) {
+          validationErrors.push(`${auto.auto_no}: ${validation.error}`);
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        setError(validationErrors.join('\n'));
+        setLoading(false);
+        return;
+      }
+
+      await assignmentService.bulk({
+        auto_ids: autosToAssign.map(a => a.id),
+        company_id: wizardData.company_id,
+        days: parseInt(wizardData.days),
+        start_date: wizardData.start_date || undefined,
+        is_prebooked: true,
+      });
+
+      setSuccess(`${autosToAssign.length} autos assigned successfully`);
+      setShowAssignWizardModal(false);
+      setWizardStep(1);
+      setWizardData({ 
+        company_id: '', 
+        area_id: '', 
+        days: '', 
+        start_date: '',
+        numAutos: 0
+      });
+      setAvailableAutosInDateRange([]);
+      
+      // Refetch to get updated data
+      await refetchAutos();
+
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to assign autos');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -329,6 +432,18 @@ const AutosPage = () => {
       const startDate = assignData.start_date ? new Date(assignData.start_date) : new Date();
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + parseInt(assignData.days));
+
+      // FIRST: Validate that start date is not in the past
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkStartDate = new Date(startDate);
+      checkStartDate.setHours(0, 0, 0, 0);
+
+      if (checkStartDate < today) {
+        setError('Start date must be today or later. Cannot assign auto to past dates.');
+        setLoading(false);
+        return;
+      }
 
       // Validate each selected auto before submitting
       const autosToAssign = autos.filter(auto => selectedAutos.has(auto.id));
@@ -652,8 +767,9 @@ const AutosPage = () => {
       return;
     }
 
-    if (!/^\d{10}$/.test(autoEditData.driver_phone)) {
-      setAutoEditError('Driver phone must be 10 digits');
+    // Accept both 10-digit format and +91XXXXXXXXXX format
+    if (!/^(\d{10}|\+\d{1,3}\d{8,12})$/.test(autoEditData.driver_phone)) {
+      setAutoEditError('Driver phone must be 10 digits or +91XXXXXXXXXX format');
       return;
     }
 
@@ -736,12 +852,12 @@ const AutosPage = () => {
             >
               <option value="">All Status</option>
               <option value="IDLE">Idle</option>
-              <option value="PRE_ASSIGNED">Pre-assigned</option>
-              <option value="ASSIGNED">Assigned</option>
+              <option value="PREBOOKED">Prebooked</option>
+              <option value="ACTIVE">Active</option>
             </select>
 
             {/* Available Areas Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={areasDropdownRef}>
               <button
                 onClick={() => setShowAvailableAreas(!showAvailableAreas)}
                 className="w-full text-left px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
@@ -840,6 +956,7 @@ const AutosPage = () => {
                   </th>
                   <th className="px-4 py-2 text-left font-medium">Auto No</th>
                   <th className="px-4 py-2 text-left font-medium">Owner</th>
+                  <th className="px-4 py-2 text-left font-medium">Driver Phone</th>
                   <th className="px-4 py-2 text-left font-medium">Area</th>
                   <th className="px-4 py-2 text-left font-medium">Status</th>
                   <th className="px-4 py-2 text-left font-medium">Company</th>
@@ -859,6 +976,7 @@ const AutosPage = () => {
                     </td>
                     <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                     <td className="px-4 py-2">{auto.owner_name}</td>
+                    <td className="px-4 py-2">{auto.driver_phone || '-'}</td>
                     <td className="px-4 py-2">{auto.area_name}</td>
                     <td className="px-4 py-2">
                       <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>{auto.display_status || auto.status}</Badge>
@@ -926,38 +1044,27 @@ const AutosPage = () => {
         {wizardStep === 2 && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Area *
-            </label>
-            <div className="space-y-2 mb-4">
-              {areas?.map((area) => (
-                <button
-                  key={area.id}
-                  onClick={() => {
-                    setWizardData({ ...wizardData, area_id: area.id });
-                    setError('');
-                    setWizardStep(3);
-                  }}
-                  className="w-full text-left p-3 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
-                >
-                  <div className="font-medium">{area.name}</div>
-                  <div className="text-sm text-gray-600">{area.pin_code}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {wizardStep === 3 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
               Start Date *
             </label>
             <Input
               type="date"
               value={wizardData.start_date}
+              min={getTodayDate()}
               onChange={(e) => {
-                setWizardData({ ...wizardData, start_date: e.target.value });
-                setError('');
+                const selectedDate = new Date(e.target.value);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                selectedDate.setHours(0, 0, 0, 0);
+                
+                // Only allow dates that are today or later
+                if (selectedDate >= today) {
+                  setWizardData({ ...wizardData, start_date: e.target.value });
+                  setError('');
+                } else if (e.target.value === '') {
+                  // Allow clearing the field
+                  setWizardData({ ...wizardData, start_date: '' });
+                  setError('');
+                }
               }}
               className="mb-4"
             />
@@ -978,135 +1085,89 @@ const AutosPage = () => {
             />
 
             {wizardData.start_date && wizardData.days && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
-                  <strong>End Date:</strong> {formatDate(calculateEndDate(wizardData.start_date, wizardData.days))}
-                </p>
-              </div>
+              <>
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
+                  <p className="text-sm text-green-800">
+                    <strong>End Date:</strong> {formatDate(calculateEndDate(wizardData.start_date, wizardData.days))}
+                  </p>
+                </div>
+
+                {availableAutosInDateRange.length > 0 && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Available Autos:</strong> {availableAutosInDateRange.length} autos available in selected date range
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {wizardStep === 4 && (
+        {wizardStep === 3 && (
           <div>
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>Select Autos to Assign:</strong> {wizardData.selectedAutoIds.size} selected / {availableAutosInDateRange.length} available
-              </p>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Area *
+            </label>
+            <div className="space-y-2 mb-6">
+              {areas?.map((area) => {
+                const areaAvailableCount = availableAutosInDateRange.filter(
+                  auto => auto.area_id === area.id
+                ).length;
+                
+                return (
+                  <button
+                    key={area.id}
+                    onClick={() => {
+                      setWizardData({ ...wizardData, area_id: area.id, numAutos: 0 });
+                      setError('');
+                    }}
+                    className={`w-full text-left p-3 border-2 rounded-lg transition ${
+                      wizardData.area_id === area.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-medium">{area.name}</div>
+                        <div className="text-sm text-gray-600">{area.pin_code}</div>
+                      </div>
+                      <div className="text-sm font-semibold text-blue-600">
+                        {areaAvailableCount} available
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
-            <Input
-              type="text"
-              placeholder="Search by auto number or owner name"
-              value={wizardSearchAutos}
-              onChange={(e) => setWizardSearchAutos(e.target.value)}
-              className="mb-4"
-            />
-
-            <div className="max-h-96 overflow-y-auto border border-gray-300 rounded-lg">
-              {availableAutosInDateRange.length > 0 ? (
-                <div className="divide-y">
-                  {(() => {
-                    // Separate IDLE and available non-IDLE autos
-                    const idleAutos = availableAutosInDateRange.filter(a => a.status === 'IDLE');
-                    const availableNonIdleAutos = availableAutosInDateRange.filter(a => a.status !== 'IDLE');
-                    
-                    const filteredIdleAutos = idleAutos.filter(auto =>
-                      auto.auto_no.toLowerCase().includes(wizardSearchAutos.toLowerCase()) ||
-                      auto.owner_name.toLowerCase().includes(wizardSearchAutos.toLowerCase())
+            {wizardData.area_id && (
+              <>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Number of Autos to Assign *
+                </label>
+                <Input
+                  type="number"
+                  value={wizardData.numAutos || ''}
+                  onChange={(e) => {
+                    const numAutos = Math.min(
+                      parseInt(e.target.value) || 0,
+                      availableAutosInDateRange.filter(auto => auto.area_id === wizardData.area_id).length
                     );
-                    
-                    const filteredNonIdleAutos = availableNonIdleAutos.filter(auto =>
-                      auto.auto_no.toLowerCase().includes(wizardSearchAutos.toLowerCase()) ||
-                      auto.owner_name.toLowerCase().includes(wizardSearchAutos.toLowerCase())
-                    );
-
-                    return (
-                      <>
-                        {/* IDLE Autos Section */}
-                        {filteredIdleAutos.length > 0 && (
-                          <div>
-                            <div className="sticky top-0 bg-green-100 px-3 py-2 font-semibold text-green-900 text-sm">
-                              ✓ Available (IDLE) - {filteredIdleAutos.length}
-                            </div>
-                            {filteredIdleAutos.map((auto) => (
-                              <div
-                                key={auto.id}
-                                onClick={() => toggleAutoSelection(auto.id)}
-                                className={`p-3 cursor-pointer hover:bg-gray-50 transition ${
-                                  wizardData.selectedAutoIds.has(auto.id) ? 'bg-blue-100' : ''
-                                }`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={wizardData.selectedAutoIds.has(auto.id)}
-                                    onChange={() => {}}
-                                    className="cursor-pointer"
-                                  />
-                                  <div className="flex-1">
-                                    <p className="font-medium">{auto.auto_no}</p>
-                                    <p className="text-sm text-gray-600">{auto.owner_name} - {auto.area_name}</p>
-                                  </div>
-                                  <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>
-                                    {auto.display_status || auto.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Available Non-IDLE Autos Section */}
-                        {filteredNonIdleAutos.length > 0 && (
-                          <div>
-                            <div className="sticky top-0 bg-yellow-100 px-3 py-2 font-semibold text-yellow-900 text-sm">
-                              ⏱ Available After Current Assignment - {filteredNonIdleAutos.length}
-                            </div>
-                            {filteredNonIdleAutos.map((auto) => (
-                              <div
-                                key={auto.id}
-                                onClick={() => toggleAutoSelection(auto.id)}
-                                className={`p-3 cursor-pointer hover:bg-gray-50 transition ${
-                                  wizardData.selectedAutoIds.has(auto.id) ? 'bg-blue-100' : ''
-                                }`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={wizardData.selectedAutoIds.has(auto.id)}
-                                    onChange={() => {}}
-                                    className="cursor-pointer"
-                                  />
-                                  <div className="flex-1">
-                                    <p className="font-medium">{auto.auto_no}</p>
-                                    <p className="text-sm text-gray-600">{auto.owner_name} - {auto.area_name}</p>
-                                  </div>
-                                  <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>
-                                    {auto.display_status || auto.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* No results message */}
-                        {filteredIdleAutos.length === 0 && filteredNonIdleAutos.length === 0 && (
-                          <div className="p-6 text-center text-gray-500">
-                            No autos match your search
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              ) : (
-                <div className="p-6 text-center text-gray-500">
-                  No autos available for the selected date range in this area
-                </div>
-              )}
-            </div>
+                    setWizardData({ ...wizardData, numAutos });
+                    setError('');
+                  }}
+                  min="1"
+                  max={availableAutosInDateRange.filter(auto => auto.area_id === wizardData.area_id).length}
+                  placeholder="Enter number of autos"
+                  className="mb-4"
+                />
+                <p className="text-sm text-gray-600">
+                  Maximum: {availableAutosInDateRange.filter(auto => auto.area_id === wizardData.area_id).length} autos available in this area
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -1116,9 +1177,7 @@ const AutosPage = () => {
               type="button"
               variant="secondary"
               onClick={() => {
-                if (wizardStep === 4) {
-                  setWizardStep(3);
-                } else if (wizardStep === 3) {
+                if (wizardStep === 3) {
                   setWizardStep(2);
                 } else {
                   setWizardStep(wizardStep - 1);
@@ -1129,7 +1188,7 @@ const AutosPage = () => {
               Back
             </Button>
           )}
-          {wizardStep < 4 && (
+          {wizardStep < 3 && (
             <Button
               type="button"
               onClick={handleWizardNext}
@@ -1139,14 +1198,14 @@ const AutosPage = () => {
               {loading ? 'Processing...' : 'Next'}
             </Button>
           )}
-          {wizardStep === 4 && (
+          {wizardStep === 3 && (
             <Button
               type="button"
-              onClick={handleWizardAssign}
-              disabled={loading || wizardData.selectedAutoIds.size === 0}
+              onClick={handleWizardNext}
+              disabled={loading || !wizardData.area_id || !wizardData.numAutos}
               className="flex-1"
             >
-              {loading ? 'Assigning...' : 'Assign Autos'}
+              {loading ? 'Processing...' : 'Next'}
             </Button>
           )}
           <Button
@@ -1155,7 +1214,7 @@ const AutosPage = () => {
             onClick={() => {
               setShowAssignWizardModal(false);
               setWizardStep(1);
-              setWizardData({ company_id: '', area_id: '', days: '', start_date: '', selectedAutoIds: new Set() });
+              setWizardData({ company_id: '', area_id: '', days: '', start_date: '', numAutos: 0, selectedAutoIds: new Set() });
               setAvailableAutosInDateRange([]);
               setWizardSearchAutos('');
               setError('');
@@ -1174,6 +1233,8 @@ const AutosPage = () => {
         title="Bulk Assign Selected Autos"
       >
         <form onSubmit={handleBulkAssign}>
+          {error && <ErrorAlert message={error} />}
+          
           <select
             required
             value={assignData.company_id}
@@ -1199,11 +1260,30 @@ const AutosPage = () => {
             type="date"
             label="Start Date (Optional)"
             value={assignData.start_date}
-            onChange={(e) => setAssignData({ ...assignData, start_date: e.target.value })}
+            min={getTodayDate()}
+            onChange={(e) => {
+              const selectedDate = new Date(e.target.value);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              selectedDate.setHours(0, 0, 0, 0);
+              
+              // Only allow dates that are today or later
+              if (selectedDate >= today) {
+                setAssignData({ ...assignData, start_date: e.target.value });
+              } else if (e.target.value === '') {
+                // Allow clearing the field
+                setAssignData({ ...assignData, start_date: '' });
+              }
+            }}
           />
 
           <div className="flex gap-2 mt-4">
-            <Button type="submit" disabled={loading} className="flex-1">
+            <Button 
+              type="submit" 
+              disabled={loading || (assignData.start_date && new Date(assignData.start_date) < new Date(getTodayDate()))} 
+              className="flex-1"
+              title={assignData.start_date && new Date(assignData.start_date) < new Date(getTodayDate()) ? 'Start date cannot be in the past' : ''}
+            >
               {loading ? 'Assigning...' : 'Assign'}
             </Button>
             <Button
@@ -1309,6 +1389,7 @@ const AutosPage = () => {
             label="Start Date *"
             required
             value={bulkEditData.start_date}
+            min={getTodayDate()}
             onChange={(e) => setBulkEditData({ ...bulkEditData, start_date: e.target.value })}
           />
 
@@ -1418,15 +1499,15 @@ const AutosPage = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Auto No *
+                Auto No (Read Only)
               </label>
               <input
                 type="text"
                 value={autoEditData.auto_no}
-                onChange={(e) => setAutoEditData({ ...autoEditData, auto_no: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Enter auto number"
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700 cursor-not-allowed"
               />
+              <p className="text-xs text-gray-500 mt-1">Auto number cannot be changed</p>
             </div>
 
             <div>
@@ -1451,8 +1532,8 @@ const AutosPage = () => {
                 value={autoEditData.driver_phone}
                 onChange={(e) => setAutoEditData({ ...autoEditData, driver_phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Enter 10-digit phone number"
-                maxLength="10"
+                placeholder="Enter 10 digits or +91XXXXXXXXXX"
+                maxLength="15"
               />
             </div>
 

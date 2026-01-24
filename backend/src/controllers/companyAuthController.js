@@ -46,14 +46,14 @@ exports.registerCompany = async (req, res, next) => {
       password_hash: hashedPassword,
       contact_person,
       phone_number: phone_number || '',
-      emails: [normalizedEmail],
-      phone_numbers: phone_number ? [phone_number] : [],
+      emails: JSON.stringify([normalizedEmail]),
+      phone_numbers: JSON.stringify(phone_number ? [phone_number] : []),
       required_autos: parseInt(autos_required) || 0,
-      area_id: area_id || 'default',
+      area_id: area_id || null,
       days_requested: 0,
-      status: 'INACTIVE',
+      status: 'PENDING_APPROVAL',
       company_status: 'PENDING_APPROVAL',
-      created_by_admin_id: 'system_company_registration',
+      created_by_admin_id: null,
     });
 
     // Create initial ticket for this company - ALWAYS create one

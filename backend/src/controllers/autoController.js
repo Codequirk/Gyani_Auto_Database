@@ -1,6 +1,6 @@
 const Auto = require('../models/Auto');
 const Assignment = require('../models/Assignment');
-const { computeDaysRemaining, formatDateForDb } = require('../utils/dateUtils');
+const { computeDaysRemaining, computeDaysRemainingByStatus, formatDateForDb } = require('../utils/dateUtils');
 const { mergeConsecutiveAssignments, isConsecutive } = require('../utils/assignmentMerge');
 
 /**
@@ -59,6 +59,11 @@ exports.listAutos = async (req, res, next) => {
         // PHASE 12: Show only the most recent assignment (earliest start_date among active/prebooked)
         const mostRecentAssignment = activePreBookedAssignments[0];
         
+        // Fetch company name from Company table
+        const Company = require('../models/Company');
+        const company = await Company.findById(mostRecentAssignment.company_id);
+        const companyName = company?.name || 'Unknown';
+        
         // Check if same company has consecutive assignments after this one
         // and merge them with combined days
         let mergedEndDate = new Date(mostRecentAssignment.end_date);
@@ -90,12 +95,12 @@ exports.listAutos = async (req, res, next) => {
         assignmentStart.setHours(0, 0, 0, 0);
         
         // Determine display status based on start_date
-        const displayStatus = assignmentStart > today ? 'PRE_ASSIGNED' : 'ASSIGNED';
+        const displayStatus = assignmentStart > today ? 'PREBOOKED' : 'ACTIVE';
 
         expandedAutos.push({
           ...auto,
           days_remaining: computeDaysRemaining(mergedEndDate),
-          current_company: mostRecentAssignment.company_name,
+          current_company: companyName,
           display_status: displayStatus,
           assignments: allAssignments, // Include all assignments for frontend to check availability
         });
@@ -129,10 +134,10 @@ exports.getAuto = async (req, res, next) => {
       return res.status(404).json({ error: 'Auto not found' });
     }
 
-    // Enrich assignments with days remaining
+    // Enrich assignments with days remaining (considering status)
     const enrichedAssignments = auto.assignments.map(a => ({
       ...a,
-      days_remaining: computeDaysRemaining(a.end_date),
+      days_remaining: computeDaysRemainingByStatus(a.start_date, a.end_date, a.status),
     }));
 
     res.json({ ...auto, assignments: enrichedAssignments });
@@ -214,14 +219,14 @@ exports.updateAuto = async (req, res, next) => {
     const updateData = {};
     if (owner_name) updateData.owner_name = owner_name;
     if (driver_phone) {
-      // Validate driver phone
-      if (!/^\d{10}$/.test(driver_phone)) {
-        return res.status(400).json({ error: 'Driver phone must be 10 digits' });
+      // Validate driver phone - can be 10 digits or full international format
+      if (!/^(\d{10}|\+\d{1,3}\d{8,12})$/.test(driver_phone)) {
+        return res.status(400).json({ error: 'Driver phone must be valid (10 digits or +91XXXXXXXXXX format)' });
       }
       updateData.driver_phone = driver_phone;
     }
     if (status) updateData.status = status;
-    if (notes) updateData.notes = notes;
+    if (notes !== undefined) updateData.notes = notes;
 
     const updated = await Auto.update(id, updateData);
     res.json(updated);
