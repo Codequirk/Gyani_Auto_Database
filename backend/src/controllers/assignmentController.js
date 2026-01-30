@@ -148,7 +148,7 @@ exports.createAssignment = async (req, res, next) => {
 exports.bulkAssignAutos = async (req, res, next) => {
   try {
     console.log('[BULK_ASSIGN] Request body:', JSON.stringify(req.body, null, 2));
-    const { auto_ids, company_id, days, start_date, is_prebooked } = req.body;
+    const { auto_ids, company_id, days, start_date, cost_per_day, is_prebooked } = req.body;
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days) {
       console.log('[BULK_ASSIGN] Validation failed:', { auto_ids, company_id, days });
@@ -215,6 +215,37 @@ exports.bulkAssignAutos = async (req, res, next) => {
 
     const assignments = await Assignment.createBulk(assignmentData);
     console.log('[BULK_ASSIGN] Assignments created successfully:', assignments.length);
+
+    // Create payment records if cost_per_day is provided
+    const Payment = require('../models/Payment');
+    if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
+      console.log('[BULK_ASSIGN] Creating payment records with cost_per_day:', cost_per_day);
+      
+      for (const assignment of assignments) {
+        const auto = await Auto.findById(assignment.auto_id);
+        if (auto) {
+          try {
+            await Payment.create({
+              ticket_id: assignment.id,
+              auto_id: assignment.auto_id,
+              company_id: company_id,
+              auto_no: auto.auto_no,
+              owner_name: auto.owner_name || '',
+              area_id: auto.area_id || null,
+              area_name: auto.area_name || '',
+              cost_per_day: parseFloat(cost_per_day),
+              total_days: totalDays,
+              total_cost: parseFloat(cost_per_day) * totalDays,
+              payment_status: 'PENDING'
+            });
+          } catch (paymentError) {
+            console.error('[BULK_ASSIGN] Warning: Payment creation failed for auto', assignment.auto_id, ':', paymentError.message);
+            // Don't throw - continue with other payments
+          }
+        }
+      }
+      console.log('[BULK_ASSIGN] Payment records created successfully');
+    }
 
     // Update auto statuses based on assignment status
     try {

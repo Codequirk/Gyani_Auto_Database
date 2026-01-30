@@ -33,6 +33,8 @@ const CompanyRequestsPage = () => {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [availableAutosForPayment, setAvailableAutosForPayment] = useState([]);
+  const [costPerDayForAssignment, setCostPerDayForAssignment] = useState('');
+  const [showCostInputModal, setShowCostInputModal] = useState(false);
 
   useEffect(() => {
     fetchRequests();
@@ -156,6 +158,18 @@ const CompanyRequestsPage = () => {
       return;
     }
 
+    // If autos are being assigned (not just approval), ask for cost per day
+    if (selectedAutos.size > 0) {
+      setCostPerDayForAssignment('');
+      setShowCostInputModal(true);
+      return;
+    }
+
+    // If no autos (0 required), proceed directly
+    proceedWithAssignment(null);
+  };
+
+  const proceedWithAssignment = async (costPerDay) => {
     setActionLoading(true);
     try {
       const autoIds = Array.from(selectedAutos);
@@ -166,7 +180,8 @@ const CompanyRequestsPage = () => {
       // Call backend to approve AND assign autos
       const response = await api.patch(`/company-tickets/admin/${selectedRequest.id}/approve`, {
         admin_id: admin?.id || 'system',
-        auto_ids: autoIds
+        auto_ids: autoIds,
+        cost_per_day: costPerDay ? parseFloat(costPerDay) : undefined
       });
       
       console.log('[FRONTEND] Assignment response:', response.data);
@@ -175,6 +190,7 @@ const CompanyRequestsPage = () => {
         : 'Request approved (no autos assigned as requested)';
       alert(message);
       setShowAutoAssignmentModal(false);
+      setShowCostInputModal(false);
       
       // Refresh the selected request to show payment section
       const updatedRequest = await api.get(`/company-tickets/admin/all`);
@@ -185,6 +201,7 @@ const CompanyRequestsPage = () => {
       
       setSelectedAutos(new Set());
       setAvailableAutos([]);
+      setCostPerDayForAssignment('');
       fetchRequests();
     } catch (err) {
       console.error('[FRONTEND] Assignment error:', err);
@@ -474,26 +491,6 @@ const CompanyRequestsPage = () => {
               </Button>
             </div>
 
-            {/* Payment Section */}
-            {selectedRequest?.ticket_status === 'APPROVED' && selectedRequest?.autos_required > 0 && (
-              <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-semibold text-blue-900">💰 Payment Assignment</h3>
-                  <Button
-                    onClick={handleOpenPaymentModal}
-                    variant="primary"
-                    className="text-sm"
-                    disabled={paymentLoading}
-                  >
-                    {paymentLoading ? 'Loading...' : '⚙️ Manage Payments'}
-                  </Button>
-                </div>
-                <p className="text-sm text-blue-700">
-                  Assign cost per day for each auto to calculate total payment
-                </p>
-              </div>
-            )}
-
             {/* Action Buttons */}
             {selectedRequest.ticket_status === 'PENDING' && (
               <div className="flex gap-3">
@@ -753,6 +750,95 @@ const CompanyRequestsPage = () => {
               </Button>
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Cost Input Modal - For Payment Calculation */}
+      <Modal
+        isOpen={showCostInputModal && selectedRequest !== null}
+        onClose={() => {
+          setShowCostInputModal(false);
+          setCostPerDayForAssignment('');
+        }}
+        title="Set Payment Cost"
+      >
+        {selectedRequest && (
+        <div className="space-y-4">
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-semibold text-blue-900 mb-2">💰 Payment Calculation</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm text-blue-800">
+              <div>
+                <p className="text-gray-700">Number of Autos</p>
+                <p className="font-bold text-lg">{selectedAutos.size}</p>
+              </div>
+              <div>
+                <p className="text-gray-700">Number of Days</p>
+                <p className="font-bold text-lg">{selectedRequest.days_required}</p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Cost Per Auto Per Day *
+            </label>
+            <Input
+              type="number"
+              value={costPerDayForAssignment}
+              onChange={(e) => setCostPerDayForAssignment(e.target.value)}
+              min="0"
+              step="0.01"
+              placeholder="e.g., 500"
+              className="w-full"
+            />
+          </div>
+
+          {costPerDayForAssignment && !isNaN(parseFloat(costPerDayForAssignment)) && parseFloat(costPerDayForAssignment) > 0 && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <h4 className="font-semibold text-green-900 mb-3">💵 Total Cost Breakdown</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Cost per Auto per Day</span>
+                  <span className="font-semibold">₹{parseFloat(costPerDayForAssignment).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Cost per Auto Total (all days)</span>
+                  <span className="font-semibold">₹{(parseFloat(costPerDayForAssignment) * selectedRequest?.days_required).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Number of Autos</span>
+                  <span className="font-semibold">× {selectedAutos.size}</span>
+                </div>
+                <div className="border-t border-green-300 pt-2 flex justify-between">
+                  <span className="text-green-900 font-bold">Grand Total</span>
+                  <span className="text-green-900 font-bold text-lg">₹{(parseFloat(costPerDayForAssignment) * selectedRequest?.days_required * selectedAutos.size).toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <Button
+              onClick={() => proceedWithAssignment(costPerDayForAssignment)}
+              variant="success"
+              disabled={!costPerDayForAssignment || isNaN(parseFloat(costPerDayForAssignment)) || parseFloat(costPerDayForAssignment) <= 0 || actionLoading}
+              className="flex-1"
+            >
+              {actionLoading ? 'Processing...' : 'Confirm & Assign'}
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCostInputModal(false);
+                setCostPerDayForAssignment('');
+              }}
+              variant="secondary"
+              disabled={actionLoading}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
         )}
       </Modal>
 

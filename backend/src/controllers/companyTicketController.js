@@ -117,7 +117,7 @@ exports.getAllTickets = async (req, res, next) => {
 exports.approveTicket = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { admin_id, auto_ids } = req.body;
+    const { admin_id, auto_ids, cost_per_day } = req.body;
 
     if (!id || !admin_id) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -158,10 +158,12 @@ exports.approveTicket = async (req, res, next) => {
       }
 
       console.log('[APPROVAL] Creating assignments for autos:', assignmentAutos);
+      console.log('[APPROVAL] Cost per day:', cost_per_day);
 
       // Create assignments for each auto
       const assignments = [];
       const { getDateNDaysFromNow } = require('../utils/dateUtils');
+      const Payment = require('../models/Payment');
       
       for (const autoId of assignmentAutos) {
         const endDate = getDateNDaysFromNow(ticket.days_required - 1, ticket.start_date);
@@ -178,6 +180,40 @@ exports.approveTicket = async (req, res, next) => {
         
         console.log(`[APPROVAL] Assignment created:`, assignment.id);
         assignments.push(assignment);
+
+        // Create payment record if cost_per_day is provided
+        if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
+          try {
+            const auto = await Auto.findById(autoId);
+            if (auto) {
+              const totalDays = ticket.days_required;
+              // Get area name if not present
+              let areaName = auto.area_name || '';
+              if (!areaName && auto.area_id) {
+                const area = await Area.findById(auto.area_id);
+                if (area) areaName = area.name;
+              }
+
+              await Payment.create({
+                ticket_id: assignment.id,
+                auto_id: autoId,
+                company_id: ticket.company_id,
+                auto_no: auto.auto_no,
+                owner_name: auto.owner_name || '',
+                area_id: auto.area_id || null,
+                area_name: areaName,
+                cost_per_day: parseFloat(cost_per_day),
+                total_days: totalDays,
+                total_cost: parseFloat(cost_per_day) * totalDays,
+                payment_status: 'PENDING'
+              });
+              console.log(`[APPROVAL] Payment record created for auto ${autoId}`);
+            }
+          } catch (paymentError) {
+            console.error(`[APPROVAL] Warning: Payment creation failed for auto ${autoId}:`, paymentError.message);
+            // Don't throw - continue with other payments
+          }
+        }
       }
 
       console.log(`[APPROVAL] Total assignments created: ${assignments.length}`);

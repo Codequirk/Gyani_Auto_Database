@@ -63,19 +63,35 @@ const CompanyPortalCalendar = ({ assignments = [], areas = [] }) => {
     const bookedDates = new Set();
 
     areaAssignments.forEach(assignment => {
-      const assignStart = new Date(assignment.start_date);
-      const assignEnd = new Date(assignment.end_date);
+      // Validate dates exist and are valid
+      if (!assignment.start_date || !assignment.end_date) {
+        console.warn('Invalid assignment dates:', assignment);
+        return;
+      }
 
-      const daysInRange = eachDayOfInterval({
-        start: assignStart,
-        end: assignEnd,
-      });
+      try {
+        const assignStart = new Date(assignment.start_date);
+        const assignEnd = new Date(assignment.end_date);
 
-      daysInRange.forEach(day => {
-        if (isWithinInterval(day, { start: monthStart, end: monthEnd })) {
-          bookedDates.add(format(day, 'yyyy-MM-dd'));
+        // Check if dates are valid
+        if (isNaN(assignStart.getTime()) || isNaN(assignEnd.getTime())) {
+          console.warn('Invalid date values:', { start: assignment.start_date, end: assignment.end_date });
+          return;
         }
-      });
+
+        const daysInRange = eachDayOfInterval({
+          start: assignStart,
+          end: assignEnd,
+        });
+
+        daysInRange.forEach(day => {
+          if (isWithinInterval(day, { start: monthStart, end: monthEnd })) {
+            bookedDates.add(format(day, 'yyyy-MM-dd'));
+          }
+        });
+      } catch (error) {
+        console.error('Error processing assignment dates:', error, assignment);
+      }
     });
 
     return { totalDays: bookedDates.size, bookedDates };
@@ -94,18 +110,33 @@ const CompanyPortalCalendar = ({ assignments = [], areas = [] }) => {
       // Find which autos are booked on this date
       const autosOnDate = areaAssignments
         .filter(a => {
-          // Parse dates and set to midnight for consistent comparison
-          const assignStart = new Date(a.start_date);
-          assignStart.setHours(0, 0, 0, 0);
-          
-          const assignEnd = new Date(a.end_date);
-          assignEnd.setHours(23, 59, 59, 999);
-          
-          // Create a date at midnight for comparison
-          const checkDate = new Date(date);
-          checkDate.setHours(0, 0, 0, 0);
-          
-          return isWithinInterval(checkDate, { start: assignStart, end: assignEnd });
+          // Validate dates first
+          if (!a.start_date || !a.end_date) {
+            return false;
+          }
+
+          try {
+            // Parse dates and set to midnight for consistent comparison
+            const assignStart = new Date(a.start_date);
+            const assignEnd = new Date(a.end_date);
+            
+            // Check if dates are valid
+            if (isNaN(assignStart.getTime()) || isNaN(assignEnd.getTime())) {
+              return false;
+            }
+
+            assignStart.setHours(0, 0, 0, 0);
+            assignEnd.setHours(23, 59, 59, 999);
+            
+            // Create a date at midnight for comparison
+            const checkDate = new Date(date);
+            checkDate.setHours(0, 0, 0, 0);
+            
+            return isWithinInterval(checkDate, { start: assignStart, end: assignEnd });
+          } catch (error) {
+            console.error('Error checking date status:', error);
+            return false;
+          }
         })
         .map(a => ({ auto_no: a.auto_no, owner_name: a.owner_name }));
 

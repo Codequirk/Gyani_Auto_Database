@@ -68,13 +68,14 @@ const AutosPage = () => {
     area_id: '', 
     days: '', 
     start_date: '',
+    cost_per_day: '',
     selectedAutoIds: new Set()
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [availableAutosInDateRange, setAvailableAutosInDateRange] = useState([]);
-  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: area, 3: days/date, 4: select autos
+  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: area, 3: days/date, 4: cost/payment, 5: select autos
   const [wizardSearchAutos, setWizardSearchAutos] = useState('');
   const [showAddAreaModal, setShowAddAreaModal] = useState(false);
   const [newArea, setNewArea] = useState({ name: '', pin_code: '' });
@@ -227,12 +228,18 @@ const AutosPage = () => {
       setError('Please select an area');
       return;
     }
+    if (wizardStep === 3) {
+      handleDateAndDaysSubmit();
+      return;
+    }
+    if (wizardStep === 4 && (!wizardData.cost_per_day || isNaN(parseFloat(wizardData.cost_per_day)) || parseFloat(wizardData.cost_per_day) <= 0)) {
+      setError('Please enter a valid cost per day (must be greater than 0)');
+      return;
+    }
 
     setError('');
-    if (wizardStep < 3) {
+    if (wizardStep < 4) {
       setWizardStep(wizardStep + 1);
-    } else if (wizardStep === 3) {
-      handleDateAndDaysSubmit();
     }
   };
 
@@ -274,6 +281,7 @@ const AutosPage = () => {
         company_id: wizardData.company_id,
         days: parseInt(wizardData.days),
         start_date: wizardData.start_date || undefined,
+        cost_per_day: parseFloat(wizardData.cost_per_day),
         is_prebooked: true,
       });
 
@@ -285,6 +293,7 @@ const AutosPage = () => {
         area_id: '', 
         days: '', 
         start_date: '',
+        cost_per_day: '',
         selectedAutoIds: new Set()
       });
       setAvailableAutosInDateRange([]);
@@ -884,12 +893,12 @@ const AutosPage = () => {
         onClose={() => {
           setShowAssignWizardModal(false);
           setWizardStep(1);
-          setWizardData({ company_id: '', area_id: '', days: '', start_date: '', selectedAutoIds: new Set() });
+          setWizardData({ company_id: '', area_id: '', days: '', start_date: '', cost_per_day: '', selectedAutoIds: new Set() });
           setAvailableAutosInDateRange([]);
           setWizardSearchAutos('');
           setError('');
         }}
-        title={`Assign Autos - Step ${wizardStep}/4`}
+        title={`Assign Autos - Step ${wizardStep}/5`}
       >
         {error && <ErrorAlert message={error} />}
 
@@ -993,10 +1002,67 @@ const AutosPage = () => {
 
         {wizardStep === 4 && (
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Cost Per Auto Per Day *
+            </label>
+            <Input
+              type="number"
+              value={wizardData.cost_per_day}
+              onChange={(e) => {
+                setWizardData({ ...wizardData, cost_per_day: e.target.value });
+                setError('');
+              }}
+              min="0"
+              step="0.01"
+              placeholder="e.g., 500"
+              className="mb-4"
+            />
+
+            {wizardData.cost_per_day && !isNaN(parseFloat(wizardData.cost_per_day)) && parseFloat(wizardData.cost_per_day) > 0 && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+                <h4 className="font-semibold text-blue-900">💰 Payment Summary</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-blue-700">Cost per Auto per Day</p>
+                    <p className="font-bold text-blue-900">₹{parseFloat(wizardData.cost_per_day).toLocaleString('en-IN')}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Number of Days</p>
+                    <p className="font-bold text-blue-900">{wizardData.days} days</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Autos to be Selected</p>
+                    <p className="font-bold text-blue-900">(Next step)</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Cost per Auto Total</p>
+                    <p className="font-bold text-blue-900">₹{(parseFloat(wizardData.cost_per_day) * parseInt(wizardData.days || 0)).toLocaleString('en-IN')}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {wizardStep === 5 && (
+          <div>
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
                 <strong>Select Autos to Assign:</strong> {wizardData.selectedAutoIds.size} selected / {availableAutosInDateRange.length} available
               </p>
+            </div>
+
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="text-green-700">Cost per Auto Total</p>
+                  <p className="font-bold text-green-900">₹{(parseFloat(wizardData.cost_per_day) * parseInt(wizardData.days || 0)).toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <p className="text-green-700">Total Cost (All Selected)</p>
+                  <p className="font-bold text-green-900">₹{(parseFloat(wizardData.cost_per_day) * parseInt(wizardData.days || 0) * wizardData.selectedAutoIds.size).toLocaleString('en-IN')}</p>
+                </div>
+              </div>
             </div>
 
             <Input
@@ -1120,7 +1186,9 @@ const AutosPage = () => {
               type="button"
               variant="secondary"
               onClick={() => {
-                if (wizardStep === 4) {
+                if (wizardStep === 5) {
+                  setWizardStep(4);
+                } else if (wizardStep === 4) {
                   setWizardStep(3);
                 } else if (wizardStep === 3) {
                   setWizardStep(2);
@@ -1133,7 +1201,7 @@ const AutosPage = () => {
               Back
             </Button>
           )}
-          {wizardStep < 4 && (
+          {wizardStep < 5 && (
             <Button
               type="button"
               onClick={handleWizardNext}
@@ -1143,7 +1211,7 @@ const AutosPage = () => {
               {loading ? 'Processing...' : 'Next'}
             </Button>
           )}
-          {wizardStep === 4 && (
+          {wizardStep === 5 && (
             <Button
               type="button"
               onClick={handleWizardAssign}
@@ -1159,7 +1227,7 @@ const AutosPage = () => {
             onClick={() => {
               setShowAssignWizardModal(false);
               setWizardStep(1);
-              setWizardData({ company_id: '', area_id: '', days: '', start_date: '', selectedAutoIds: new Set() });
+              setWizardData({ company_id: '', area_id: '', days: '', start_date: '', cost_per_day: '', selectedAutoIds: new Set() });
               setAvailableAutosInDateRange([]);
               setWizardSearchAutos('');
               setError('');
