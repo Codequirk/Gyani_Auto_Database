@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { paymentService, companyService } from '../services/api';
 import Navbar from '../components/Navbar';
 import { Card, Button, Badge } from '../components/UI';
@@ -11,10 +11,30 @@ export default function PaymentAdminPage() {
   const [viewMode, setViewMode] = useState('companies'); // 'companies' or 'details'
   const [selectedArea, setSelectedArea] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [showExpandedDetailsModal, setShowExpandedDetailsModal] = useState(false);
+  const [selectedPaymentGroup, setSelectedPaymentGroup] = useState(null);
+  const [selectedPaymentKeys, setSelectedPaymentKeys] = useState(new Set());
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [openMenuKey, setOpenMenuKey] = useState(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     fetchPaymentData();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setOpenMenuKey(null);
+      }
+    };
+
+    if (openMenuKey) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [openMenuKey]);
 
   const fetchPaymentData = async () => {
     try {
@@ -98,11 +118,92 @@ export default function PaymentAdminPage() {
   };
 
   const calculateAreaTotal = (areaPayments) => {
-    return areaPayments.reduce((total, payment) => total + (payment.total_cost || 0), 0);
+    return areaPayments.reduce((total, payment) => total + (parseFloat(payment.total_cost) || 0), 0);
   };
 
   const calculateCompanyTotal = (payments) => {
-    return payments.reduce((total, payment) => total + (payment.total_cost || 0), 0);
+    return payments.reduce((total, payment) => total + (parseFloat(payment.total_cost) || 0), 0);
+  };
+
+  const handleDeletePayments = async () => {
+    if (selectedPaymentKeys.size === 0) {
+      setError('Please select payments to delete');
+      return;
+    }
+
+    // Show confirmation modal
+    const confirmed = window.confirm(`Are you sure you want to delete ${selectedPaymentKeys.size} payment entry/entries? This action cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeleteLoading(true);
+      
+      // Get all payments from paymentData
+      const allPayments = [];
+      paymentData.forEach(companyGroup => {
+        companyGroup.payments.forEach(payment => {
+          allPayments.push(payment);
+        });
+      });
+      
+      // Map selected keys to payment IDs
+      const paymentIds = Array.from(selectedPaymentKeys).map(key => {
+        const [date, area] = key.split('|');
+        const groupedByDateAndArea = {};
+        allPayments.forEach(payment => {
+          const payDate = new Date(payment.created_at).toLocaleDateString('en-IN');
+          const payArea = payment.area_name || 'Unassigned';
+          const payKey = `${payDate}|${payArea}`;
+          if (!groupedByDateAndArea[payKey]) {
+            groupedByDateAndArea[payKey] = [];
+          }
+          groupedByDateAndArea[payKey].push(payment);
+        });
+        return groupedByDateAndArea[key]?.map(p => p.id) || [];
+      }).flat();
+
+      // Delete each payment
+      for (const id of paymentIds) {
+        await paymentService.delete(id);
+      }
+
+      // Remove deleted items from UI immediately
+      setPaymentData(prevData => {
+        const updatedData = prevData.map(companyGroup => ({
+          ...companyGroup,
+          payments: companyGroup.payments.filter(p => !paymentIds.includes(p.id))
+        })).filter(companyGroup => companyGroup.payments.length > 0);
+        return updatedData;
+      });
+
+      setSelectedPaymentKeys(new Set());
+      setIsSelectMode(false);
+      setError('');
+    } catch (err) {
+      setError('Failed to delete payments: ' + err.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleSelectPayment = (key) => {
+    const newSelected = new Set(selectedPaymentKeys);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
+    } else {
+      newSelected.add(key);
+    }
+    setSelectedPaymentKeys(newSelected);
+  };
+
+  const handleSelectAll = (paymentKeys) => {
+    if (selectedPaymentKeys.size === paymentKeys.length) {
+      setSelectedPaymentKeys(new Set());
+    } else {
+      setSelectedPaymentKeys(new Set(paymentKeys));
+    }
   };
 
   const calculateCostPerDaySum = (payments) => {
@@ -151,33 +252,6 @@ export default function PaymentAdminPage() {
             </div>
           ) : (
             <>
-              {/* Tab Navigation */}
-              <div className="mb-6 flex gap-4">
-                <button
-                  onClick={() => {
-                    setViewMode('companies');
-                    setSelectedCompany(null);
-                  }}
-                  className={`px-6 py-2 rounded-lg font-semibold transition ${
-                    viewMode === 'companies'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  📋 Companies
-                </button>
-                <button
-                  onClick={() => setViewMode('autos')}
-                  className={`px-6 py-2 rounded-lg font-semibold transition ${
-                    viewMode === 'autos'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  🚗 Autos
-                </button>
-              </div>
-
               {paymentData.length === 0 ? (
                 <div className="bg-white rounded-lg shadow p-8 text-center">
                   <p className="text-gray-600 mb-4">No payment data available</p>
@@ -191,7 +265,7 @@ export default function PaymentAdminPage() {
                   {viewMode === 'companies' && !selectedCompany && (
                     <div>
                       <h2 className="text-2xl font-bold text-gray-900 mb-4">Companies List</h2>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="space-y-3">
                         {paymentData.map((companyData) => {
                           const company = companyData.company;
                           const payments = companyData.payments;
@@ -204,21 +278,20 @@ export default function PaymentAdminPage() {
                                 setSelectedCompany(companyData);
                                 setViewMode('details');
                               }}
-                              className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500 hover:shadow-lg hover:cursor-pointer transition transform hover:scale-105"
+                              className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500 hover:shadow-lg hover:cursor-pointer transition flex items-center justify-between"
                             >
-                              <h3 className="text-lg font-bold text-gray-900 mb-2">{company.name}</h3>
-                              <div className="space-y-2 text-sm text-gray-600">
-                                <p><span className="font-semibold">Email:</span> {company.email || 'N/A'}</p>
-                                <p><span className="font-semibold">Phone:</span> {company.phone || 'N/A'}</p>
-                                <p><span className="font-semibold">Autos Assigned:</span> {payments.length}</p>
+                              <div className="flex-1">
+                                <h3 className="text-lg font-bold text-gray-900 mb-2">{company.name}</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
+                                  <p><span className="font-semibold">Email:</span> {company.email || 'N/A'}</p>
+                                  <p><span className="font-semibold">Phone:</span> {company.phone_number || 'N/A'}</p>
+                                  <p><span className="font-semibold">Autos Assigned:</span> {payments.length}</p>
+                                </div>
                               </div>
-                              <div className="mt-3 pt-3 border-t border-gray-200">
+                              <div className="text-right ml-4">
                                 <p className="text-gray-600 text-xs">Total Payment Value</p>
-                                <p className="text-green-600 font-bold text-xl">₹{companyTotal.toLocaleString('en-IN')}</p>
+                                <p className="text-green-600 font-bold text-2xl">₹{companyTotal.toLocaleString('en-IN')}</p>
                               </div>
-                              <button className="mt-4 w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">
-                                View Details →
-                              </button>
                             </div>
                           );
                         })}
@@ -242,136 +315,6 @@ export default function PaymentAdminPage() {
                     </div>
                   )}
 
-                  {/* AUTOS VIEW */}
-                  {viewMode === 'autos' && (
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900 mb-4">All Autos by Company</h2>
-                      <div className="space-y-8">
-                        {paymentData.map((companyData) => {
-                          const company = companyData.company;
-                          const payments = companyData.payments;
-                          const companyTotal = calculateCompanyTotal(payments);
-
-                          return (
-                            <div
-                              key={company.id}
-                              className="bg-white rounded-lg shadow-lg overflow-hidden border-l-4 border-blue-600"
-                            >
-                              {/* Company Header */}
-                              <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-6 border-b border-blue-200">
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                  <div>
-                                    <p className="text-gray-600 text-sm font-semibold">Company Name</p>
-                                    <p className="text-gray-900 font-bold text-lg">{company.name}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-gray-600 text-sm font-semibold">Email</p>
-                                    <p className="text-gray-900">{company.email || 'N/A'}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-gray-600 text-sm font-semibold">Phone</p>
-                                    <p className="text-gray-900">{company.phone || 'N/A'}</p>
-                                  </div>
-                                  <div className="bg-white bg-opacity-70 rounded p-3">
-                                    <p className="text-gray-600 text-sm font-semibold">Total Autos</p>
-                                    <p className="text-blue-600 font-bold text-lg">{payments.length}</p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Autos Table */}
-                              <div className="p-6">
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                  Assigned Autos
-                                </h3>
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-sm">
-                                    <thead>
-                                      <tr className="bg-gray-200 text-gray-700">
-                                        <th className="px-4 py-2 text-left">Auto No.</th>
-                                        <th className="px-4 py-2 text-left">Owner Name</th>
-                                        <th className="px-4 py-2 text-left">Area</th>
-                                        <th className="px-4 py-2 text-right">Cost/Day</th>
-                                        <th className="px-4 py-2 text-right">Days</th>
-                                        <th className="px-4 py-2 text-right">Total Cost</th>
-                                        <th className="px-4 py-2 text-center">Status</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {payments.map((payment) => (
-                                        <tr
-                                          key={payment.id}
-                                          className="border-b border-gray-300 hover:bg-gray-100 transition"
-                                        >
-                                          <td className="px-4 py-3 font-semibold text-gray-900">
-                                            {payment.auto_no}
-                                          </td>
-                                          <td className="px-4 py-3 text-gray-700">
-                                            {payment.owner_name}
-                                          </td>
-                                          <td className="px-4 py-3 text-gray-700">
-                                            {payment.area_name || 'N/A'}
-                                          </td>
-                                          <td className="px-4 py-3 text-right text-gray-700">
-                                            ₹{payment.cost_per_day.toLocaleString('en-IN')}
-                                          </td>
-                                          <td className="px-4 py-3 text-right text-gray-700">
-                                            {payment.total_days} days
-                                          </td>
-                                          <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                                            ₹{(payment.total_cost || 0).toLocaleString('en-IN')}
-                                          </td>
-                                          <td className="px-4 py-3 text-center">
-                                            <span
-                                              className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                                payment.payment_status === 'PAID'
-                                                  ? 'bg-green-100 text-green-800'
-                                                  : payment.payment_status === 'APPROVED'
-                                                  ? 'bg-blue-100 text-blue-800'
-                                                  : payment.payment_status === 'PENDING'
-                                                  ? 'bg-yellow-100 text-yellow-800'
-                                                  : 'bg-red-100 text-red-800'
-                                              }`}
-                                            >
-                                              {payment.payment_status}
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-
-                              {/* Company Totals Footer */}
-                              <div className="bg-gradient-to-r from-green-50 to-green-100 p-6 border-t border-green-200">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                  <div className="bg-white bg-opacity-70 rounded p-4">
-                                    <p className="text-gray-600 text-sm font-semibold">Total Vehicles</p>
-                                    <p className="text-green-600 font-bold text-2xl">{payments.length}</p>
-                                  </div>
-
-                                  <div className="bg-white bg-opacity-70 rounded p-4">
-                                    <p className="text-gray-600 text-sm font-semibold">Sum of Daily Rates</p>
-                                    <p className="text-green-600 font-bold text-2xl">
-                                      ₹{calculateCostPerDaySum(payments).toLocaleString('en-IN')}
-                                    </p>
-                                  </div>
-
-                                  <div className="bg-white bg-opacity-70 rounded p-4 border-2 border-green-500">
-                                    <p className="text-gray-600 text-sm font-semibold">Grand Total</p>
-                                    <p className="text-green-700 font-bold text-2xl">
-                                      ₹{companyTotal.toLocaleString('en-IN')}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </>
@@ -379,7 +322,7 @@ export default function PaymentAdminPage() {
         </div>
       </div>
     </div>
-  );
+  )
 
   function renderCompanyDetails(companyData) {
     
@@ -453,63 +396,39 @@ export default function PaymentAdminPage() {
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
           
-          {/* Area Filter */}
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">📍 Filter by Area</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedArea('all')}
-                className={`px-4 py-2 rounded-lg font-medium transition ${
-                  selectedArea === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Area Filter Dropdown */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-3 block">📍 Filter by Area</label>
+              <select
+                value={selectedArea}
+                onChange={(e) => setSelectedArea(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                All Areas
-              </button>
-              {uniqueAreas.map(area => (
-                <button
-                  key={area}
-                  onClick={() => setSelectedArea(area)}
-                  className={`px-4 py-2 rounded-lg font-medium transition ${
-                    selectedArea === area
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  {area}
-                </button>
-              ))}
+                <option value="all">All Areas</option>
+                {uniqueAreas.map(area => (
+                  <option key={area} value={area}>
+                    {area}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          {/* Month Filter */}
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">📅 Filter by Month</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedMonth('all')}
-                className={`px-4 py-2 rounded-lg font-medium transition ${
-                  selectedMonth === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
+            {/* Month Filter Dropdown */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-3 block">📅 Filter by Month</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                All Months
-              </button>
-              {uniqueMonths.map(month => (
-                <button
-                  key={month}
-                  onClick={() => setSelectedMonth(month)}
-                  className={`px-4 py-2 rounded-lg font-medium transition ${
-                    selectedMonth === month
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  {new Date(month + '-01').toLocaleString('en-IN', { month: 'short', year: 'numeric' })}
-                </button>
-              ))}
+                <option value="all">All Months</option>
+                {uniqueMonths.map(month => (
+                  <option key={month} value={month}>
+                    {new Date(month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
@@ -537,7 +456,7 @@ export default function PaymentAdminPage() {
             <div className="space-y-3">
               {uniqueMonths.map(month => {
                 const monthPayments = payments.filter(p => new Date(p.created_at).toISOString().slice(0, 7) === month);
-                const monthTotal = monthPayments.reduce((sum, p) => sum + (p.total_cost || 0), 0);
+                const monthTotal = monthPayments.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0);
                 return (
                   <div key={month} className="flex justify-between items-center p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg border border-green-200">
                     <div>
@@ -561,60 +480,188 @@ export default function PaymentAdminPage() {
           )}
         </div>
 
-        {/* Payments Table */}
+        {/* Payments Table - Grouped by Date and Area */}
         <div className="bg-white rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Payment Details ({filteredCount} entries)
-          </h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Payment Details
+            </h3>
+            <div className="flex gap-3">
+              {!isSelectMode && (
+                <button
+                  onClick={() => setIsSelectMode(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+                >
+                  Select
+                </button>
+              )}
+              {isSelectMode && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsSelectMode(false);
+                      setSelectedPaymentKeys(new Set());
+                    }}
+                    className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeletePayments}
+                    disabled={deleteLoading || selectedPaymentKeys.size === 0}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-semibold"
+                  >
+                    Delete {selectedPaymentKeys.size > 0 ? `(${selectedPaymentKeys.size})` : ''}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
           
           {filteredByMonth.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-100 text-gray-700">
-                    <th className="px-4 py-3 text-left">Auto No.</th>
-                    <th className="px-4 py-3 text-left">Owner Name</th>
-                    <th className="px-4 py-3 text-left">Area</th>
-                    <th className="px-4 py-3 text-right">Cost/Day</th>
-                    <th className="px-4 py-3 text-right">Days</th>
-                    <th className="px-4 py-3 text-right">Total Cost</th>
-                    <th className="px-4 py-3 text-center">Status</th>
+                    {isSelectMode && (
+                      <th className="px-4 py-3 text-center w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedPaymentKeys.size > 0 && (() => {
+                            const groupedByDateAndArea = {};
+                            filteredByMonth.forEach(payment => {
+                              const date = new Date(payment.created_at).toLocaleDateString('en-IN');
+                              const area = payment.area_name || 'Unassigned';
+                              const key = `${date}|${area}`;
+                              if (!groupedByDateAndArea[key]) {
+                                groupedByDateAndArea[key] = [];
+                              }
+                              groupedByDateAndArea[key].push(payment);
+                            });
+                            return selectedPaymentKeys.size === Object.keys(groupedByDateAndArea).length;
+                          })()}
+                          onChange={() => {
+                            const groupedByDateAndArea = {};
+                            filteredByMonth.forEach(payment => {
+                              const date = new Date(payment.created_at).toLocaleDateString('en-IN');
+                              const area = payment.area_name || 'Unassigned';
+                              const key = `${date}|${area}`;
+                              if (!groupedByDateAndArea[key]) {
+                                groupedByDateAndArea[key] = [];
+                              }
+                              groupedByDateAndArea[key].push(payment);
+                            });
+                            handleSelectAll(Object.keys(groupedByDateAndArea));
+                          }}
+                          className="w-5 h-5 cursor-pointer"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Timing</th>
+                    <th className="px-4 py-3 text-right">No. of Autos</th>
+                    <th className="px-4 py-3 text-right">No. of Days</th>
+                    <th className="px-4 py-3 text-right">Cost per Auto</th>
+                    <th className="px-4 py-3 text-right">Total Cost</th>
+                    <th className="px-4 py-3 text-left">Area</th>
+                    {!isSelectMode && <th className="px-4 py-3 text-center">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredByMonth.map((payment) => (
-                    <tr key={payment.id} className="border-b border-gray-200 hover:bg-gray-50 transition">
-                      <td className="px-4 py-3 font-semibold text-gray-900">{payment.auto_no || 'N/A'}</td>
-                      <td className="px-4 py-3 text-gray-700">{payment.owner_name || 'N/A'}</td>
-                      <td className="px-4 py-3 text-gray-700">{payment.area_name || 'Unassigned'}</td>
-                      <td className="px-4 py-3 text-right text-gray-700">
-                        ₹{parseFloat(payment.cost_per_day).toLocaleString('en-IN')}
-                      </td>
-                      <td className="px-4 py-3 text-right text-gray-700">{payment.total_days}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                        ₹{(payment.total_cost || 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            payment.payment_status === 'PAID'
-                              ? 'bg-green-100 text-green-800'
-                              : payment.payment_status === 'APPROVED'
-                              ? 'bg-blue-100 text-blue-800'
-                              : payment.payment_status === 'PENDING'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
+                  {(() => {
+                    // Group payments by date AND area
+                    const groupedByDateAndArea = {};
+                    filteredByMonth.forEach(payment => {
+                      const date = new Date(payment.created_at).toLocaleDateString('en-IN');
+                      const area = payment.area_name || 'Unassigned';
+                      const key = `${date}|${area}`;
+                      if (!groupedByDateAndArea[key]) {
+                        groupedByDateAndArea[key] = [];
+                      }
+                      groupedByDateAndArea[key].push(payment);
+                    });
+
+                    return Object.entries(groupedByDateAndArea).map(([key, paymentsForGroup]) => {
+                      const [date, area] = key.split('|');
+                      return (
+                        <tr
+                          key={key}
+                          className="border-b border-gray-200 hover:bg-blue-50 transition cursor-pointer"
+                          onDoubleClick={() => {
+                            setSelectedPaymentGroup(paymentsForGroup);
+                            setShowExpandedDetailsModal(true);
+                          }}
                         >
-                          {payment.payment_status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">
-                        {new Date(payment.created_at).toLocaleDateString('en-IN')}
-                      </td>
-                    </tr>
-                  ))}
+                          {isSelectMode && (
+                            <td className="px-4 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedPaymentKeys.has(key)}
+                                onChange={() => handleSelectPayment(key)}
+                                className="w-5 h-5 cursor-pointer"
+                              />
+                            </td>
+                          )}
+                          <td
+                            className="px-4 py-3 font-semibold text-gray-900"
+                          >
+                            {date}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {paymentsForGroup[0]?.assigned_time
+                              ? new Date(paymentsForGroup[0].assigned_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+                              : 'N/A'}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-700">{paymentsForGroup.length}</td>
+                          <td className="px-4 py-3 text-right text-gray-700">
+                            {paymentsForGroup[0]?.total_days || 0}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-700">
+                            ₹{parseFloat(paymentsForGroup[0]?.cost_per_day || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                            ₹{paymentsForGroup.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 font-medium">{area}</td>
+                          {!isSelectMode && (
+                            <td className="px-4 py-3 text-center">
+                              <div className="relative" ref={menuRef}>
+                                <button
+                                  onClick={() => setOpenMenuKey(openMenuKey === key ? null : key)}
+                                  className="text-gray-600 hover:text-gray-800 font-bold text-lg"
+                                >
+                                  ⋮
+                                </button>
+                                {openMenuKey === key && (
+                                  <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                                    <button
+                                      onClick={() => {
+                                        // Edit functionality can be added here
+                                        alert('Edit functionality to be implemented');
+                                        setOpenMenuKey(null);
+                                      }}
+                                      className="block w-full text-left px-4 py-2 text-green-600 hover:bg-green-50 text-sm border-b"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        handleSelectPayment(key);
+                                        setOpenMenuKey(null);
+                                      }}
+                                      className="block w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 text-sm"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -624,6 +671,89 @@ export default function PaymentAdminPage() {
             </div>
           )}
         </div>
+
+        {/* Expanded Details Modal - Double Click */}
+        {showExpandedDetailsModal && selectedPaymentGroup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Detailed Assignment Information</h2>
+              
+              {/* Summary Section */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 pb-6 border-b">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <p className="text-gray-600 text-sm">Total Autos</p>
+                  <p className="text-2xl font-bold text-blue-600">{selectedPaymentGroup.length}</p>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <p className="text-gray-600 text-sm">Total Days</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {selectedPaymentGroup[0]?.total_days || 0}
+                  </p>
+                </div>
+                <div className="bg-yellow-50 p-4 rounded-lg">
+                  <p className="text-gray-600 text-sm">Cost per Auto</p>
+                  <p className="text-2xl font-bold text-yellow-600">
+                    ₹{parseFloat(selectedPaymentGroup[0]?.cost_per_day || 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <p className="text-gray-600 text-sm">Total Cost</p>
+                  <p className="text-2xl font-bold text-purple-600">
+                    ₹{selectedPaymentGroup.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Detailed Breakdown Table */}
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Auto Details</h3>
+              <div className="overflow-x-auto mb-6">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700">
+                      <th className="px-4 py-3 text-left">Auto No.</th>
+                      <th className="px-4 py-3 text-left">Owner Name</th>
+                      <th className="px-4 py-3 text-left">Area</th>
+                      <th className="px-4 py-3 text-right">Days</th>
+                      <th className="px-4 py-3 text-right">Cost/Day</th>
+                      <th className="px-4 py-3 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPaymentGroup.map((payment, idx) => (
+                      <tr key={`${payment.id}-${idx}`} className="border-b border-gray-200 hover:bg-gray-50">
+                        <td className="px-4 py-3 font-semibold text-gray-900">{payment.auto_no || 'N/A'}</td>
+                        <td className="px-4 py-3 text-gray-700">{payment.owner_name || 'N/A'}</td>
+                        <td className="px-4 py-3 text-gray-700">{payment.area_name || 'Unassigned'}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{payment.total_days}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">
+                          ₹{parseFloat(payment.cost_per_day).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                          ₹{(payment.total_cost || 0).toLocaleString('en-IN')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Calculation */}
+              <div className="bg-blue-50 p-4 rounded-lg mb-6">
+                <p className="text-gray-700 font-semibold mb-2">Calculation:</p>
+                <p className="text-gray-600">
+                  {selectedPaymentGroup.length} autos × {selectedPaymentGroup[0]?.total_days || 0} days × ₹{parseFloat(selectedPaymentGroup[0]?.cost_per_day || 0).toLocaleString('en-IN')}/day = ₹{selectedPaymentGroup.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0).toLocaleString('en-IN')}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowExpandedDetailsModal(false)}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

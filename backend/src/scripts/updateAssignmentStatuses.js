@@ -80,9 +80,9 @@ async function updateAllAssignmentStatuses() {
       
       let newAutoStatus = 'IDLE';
       if (hasActiveAssignment) {
-        newAutoStatus = 'ACTIVE';
+        newAutoStatus = 'ASSIGNED';
       } else if (hasPreAssignedAssignment) {
-        newAutoStatus = 'PREBOOKED';
+        newAutoStatus = 'PRE_ASSIGNED';
       }
       
       const auto = await Auto.findById(autoId);

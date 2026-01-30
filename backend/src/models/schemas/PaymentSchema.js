@@ -14,6 +14,7 @@ const paymentSchema = new mongoose.Schema({
   total_days: { type: Number, required: true, default: 0 },
   total_cost: { type: Number, required: true, default: 0 }, // cost_per_day * total_days
   assigned_by_admin_id: { type: String, default: null },
+  assigned_time: { type: Date, default: () => new Date() }, // Time when assignment was created/assigned
   payment_status: {
     type: String,
     enum: ['PENDING', 'APPROVED', 'PAID', 'CANCELLED'],
@@ -31,3 +32,4 @@ paymentSchema.index({ company_id: 1 });
 paymentSchema.index({ payment_status: 1 });
 
 module.exports = mongoose.model('Payment', paymentSchema);
+

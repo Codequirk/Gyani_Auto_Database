@@ -51,7 +51,7 @@ exports.registerCompany = async (req, res, next) => {
       required_autos: parseInt(autos_required) || 0,
       area_id: area_id || null,
       days_requested: 0,
-      status: 'PENDING_APPROVAL',
+      status: 'INACTIVE',
       company_status: 'PENDING_APPROVAL',
       created_by_admin_id: null,
     });

@@ -14,6 +14,9 @@ exports.getDashboardSummary = async (req, res, next) => {
     let activeCount = 0;
     const idleAutosList = [];
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     // Count autos based on their actual active/prebooked assignments
     for (const auto of allAutos) {
       const assignments = await db('assignments').where({ auto_id: auto.id });
@@ -26,9 +29,30 @@ exports.getDashboardSummary = async (req, res, next) => {
         if (area) auto.area_name = area.name;
         idleAutosList.push(auto);
       } else {
-        // Check if any ACTIVE assignments exist
-        const hasActive = activeAssignments.some(a => a.status === 'ACTIVE');
-        if (hasActive) {
+        // Check if assignment dates make it ACTIVE (current date within range) or PREBOOKED (future start date)
+        let hasCurrentActive = false;
+        for (const assignment of activeAssignments) {
+          let startDate = new Date(assignment.start_date);
+          let endDate = new Date(assignment.end_date);
+          
+          // Handle string dates from database
+          if (typeof assignment.start_date === 'string') {
+            startDate = new Date(assignment.start_date);
+          }
+          if (typeof assignment.end_date === 'string') {
+            endDate = new Date(assignment.end_date);
+          }
+          
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(0, 0, 0, 0);
+          
+          if (today >= startDate && today <= endDate) {
+            hasCurrentActive = true;
+            break;
+          }
+        }
+        
+        if (hasCurrentActive) {
           activeCount++;
         } else {
           preBookedCount++;

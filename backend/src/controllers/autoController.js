@@ -1,6 +1,6 @@
 const Auto = require('../models/Auto');
 const Assignment = require('../models/Assignment');
-const { computeDaysRemaining, computeDaysRemainingByStatus, formatDateForDb } = require('../utils/dateUtils');
+const { computeDaysRemaining, formatDateForDb } = require('../utils/dateUtils');
 const { mergeConsecutiveAssignments, isConsecutive } = require('../utils/assignmentMerge');
 
 /**
@@ -41,8 +41,20 @@ exports.listAutos = async (req, res, next) => {
     for (const auto of autos) {
       const allAssignments = await Assignment.findByAutoId(auto.id);
       
+      // Enrich all assignments with company_name
+      const Company = require('../models/Company');
+      const enrichedAssignments = await Promise.all(
+        allAssignments.map(async (a) => {
+          if (a.company_id && !a.company_name) {
+            const company = await Company.findById(a.company_id);
+            a.company_name = company?.name || 'Unknown';
+          }
+          return a;
+        })
+      );
+      
       // Filter only active and prebooked assignments, sorted by start_date
-      const activePreBookedAssignments = allAssignments
+      const activePreBookedAssignments = enrichedAssignments
         .filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED')
         .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
@@ -53,16 +65,11 @@ exports.listAutos = async (req, res, next) => {
           days_remaining: null,
           current_company: null,
           display_status: auto.status, // Keep original status (IDLE)
-          assignments: [], // Include empty assignments array
+          assignments: enrichedAssignments, // Include enriched assignments array
         });
       } else {
         // PHASE 12: Show only the most recent assignment (earliest start_date among active/prebooked)
         const mostRecentAssignment = activePreBookedAssignments[0];
-        
-        // Fetch company name from Company table
-        const Company = require('../models/Company');
-        const company = await Company.findById(mostRecentAssignment.company_id);
-        const companyName = company?.name || 'Unknown';
         
         // Check if same company has consecutive assignments after this one
         // and merge them with combined days
@@ -94,15 +101,28 @@ exports.listAutos = async (req, res, next) => {
         const assignmentStart = new Date(mostRecentAssignment.start_date);
         assignmentStart.setHours(0, 0, 0, 0);
         
-        // Determine display status based on start_date
-        const displayStatus = assignmentStart > today ? 'PREBOOKED' : 'ACTIVE';
+        // Determine display status based on assignment status and dates
+        let displayStatus = 'ACTIVE';
+        const assignmentEnd = new Date(mostRecentAssignment.end_date);
+        assignmentEnd.setHours(0, 0, 0, 0);
+        
+        if (mostRecentAssignment.status === 'PREBOOKED') {
+          displayStatus = 'PREBOOKED';
+        } else if (mostRecentAssignment.status === 'ACTIVE') {
+          // Check if actually in date range
+          if (today >= assignmentStart && today <= assignmentEnd) {
+            displayStatus = 'ACTIVE';
+          } else if (today < assignmentStart) {
+            displayStatus = 'PREBOOKED';
+          }
+        }
 
         expandedAutos.push({
           ...auto,
           days_remaining: computeDaysRemaining(mergedEndDate),
-          current_company: companyName,
+          current_company: mostRecentAssignment.company_name,
           display_status: displayStatus,
-          assignments: allAssignments, // Include all assignments for frontend to check availability
+          assignments: enrichedAssignments, // Include all enriched assignments for frontend to check availability
         });
       }
     }
@@ -134,11 +154,24 @@ exports.getAuto = async (req, res, next) => {
       return res.status(404).json({ error: 'Auto not found' });
     }
 
-    // Enrich assignments with days remaining (considering status)
-    const enrichedAssignments = auto.assignments.map(a => ({
-      ...a,
-      days_remaining: computeDaysRemainingByStatus(a.start_date, a.end_date, a.status),
-    }));
+    // Enrich assignments with days remaining and calculate days if needed
+    const enrichedAssignments = auto.assignments.map(a => {
+      // Calculate days from date range if not set
+      let days = a.days || 0;
+      if (!days || days === 0) {
+        const startDate = new Date(a.start_date);
+        const endDate = new Date(a.end_date);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
+        days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      }
+      
+      return {
+        ...a,
+        days: days,
+        days_remaining: computeDaysRemaining(a.end_date),
+      };
+    });
 
     res.json({ ...auto, assignments: enrichedAssignments });
   } catch (error) {
@@ -219,14 +252,14 @@ exports.updateAuto = async (req, res, next) => {
     const updateData = {};
     if (owner_name) updateData.owner_name = owner_name;
     if (driver_phone) {
-      // Validate driver phone - can be 10 digits or full international format
-      if (!/^(\d{10}|\+\d{1,3}\d{8,12})$/.test(driver_phone)) {
-        return res.status(400).json({ error: 'Driver phone must be valid (10 digits or +91XXXXXXXXXX format)' });
+      // Validate driver phone
+      if (!/^\d{10}$/.test(driver_phone)) {
+        return res.status(400).json({ error: 'Driver phone must be 10 digits' });
       }
       updateData.driver_phone = driver_phone;
     }
     if (status) updateData.status = status;
-    if (notes !== undefined) updateData.notes = notes;
+    if (notes) updateData.notes = notes;
 
     const updated = await Auto.update(id, updateData);
     res.json(updated);

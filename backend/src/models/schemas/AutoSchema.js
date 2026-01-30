@@ -10,7 +10,7 @@ const autoSchema = new mongoose.Schema({
   area_name: { type: String, default: null },
   status: {
     type: String,
-    enum: ['IDLE', 'PREBOOKED', 'ACTIVE'],
+    enum: ['IDLE', 'PRE_ASSIGNED', 'ASSIGNED'],
     default: 'IDLE',
     index: true,
   },

@@ -62,7 +62,7 @@ Added `updateAutoStatusIfExpired()` helper that:
 - Updates each assignment to correct status based on current date
 - Recalculates auto status based on its assignments:
   - **ASSIGNED**: If any assignment is ACTIVE
-  - **PREBOOKED**: If only PREBOOKED assignments exist
+  - **PRE_ASSIGNED**: If only PREBOOKED assignments exist
   - **IDLE**: If all assignments are COMPLETED or none exist
 
 ### 4. **Updated API Endpoints**
@@ -84,8 +84,8 @@ COMPLETED (after end_date)
 ```
 
 **Auto Status Updates:**
-- If any assignment is ACTIVE → Auto status = ACTIVE
-- If only PREBOOKED assignments exist → Auto status = PREBOOKED
+- If any assignment is ACTIVE → Auto status = ASSIGNED
+- If only PREBOOKED assignments exist → Auto status = PRE_ASSIGNED
 - If all assignments are COMPLETED → Auto status = IDLE
 
 ### 6. **Fix All Existing Assignments**

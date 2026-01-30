@@ -15,6 +15,7 @@ const assignmentSchema = new mongoose.Schema({
     default: 'ACTIVE',
     index: true,
   },
+  assigned_time: { type: Date, default: () => new Date() }, // Time when assignment was created/assigned
   created_at: { type: Date, default: Date.now, index: true },
   updated_at: { type: Date, default: Date.now },
 }, { collection: 'assignments' });
@@ -25,3 +26,4 @@ assignmentSchema.index({ end_date: 1 });
 assignmentSchema.index({ status: 1 });
 
 module.exports = mongoose.model('Assignment', assignmentSchema);
+

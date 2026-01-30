@@ -184,7 +184,29 @@ exports.deletePayment = async (req, res, next) => {
 exports.getAllPayments = async (req, res, next) => {
   try {
     const payments = await Payment.findAll();
-    res.json(payments);
+    
+    // Enrich payments with assignment data (start_date, end_date)
+    const enrichedPayments = await Promise.all(
+      payments.map(async (payment) => {
+        try {
+          const assignment = await Assignment.findById(payment.ticket_id);
+          return {
+            ...payment,
+            start_date: assignment?.start_date || null,
+            end_date: assignment?.end_date || null,
+          };
+        } catch (e) {
+          // If assignment not found, just return payment without dates
+          return {
+            ...payment,
+            start_date: null,
+            end_date: null,
+          };
+        }
+      })
+    );
+    
+    res.json(enrichedPayments);
   } catch (error) {
     next(error);
   }

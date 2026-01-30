@@ -14,30 +14,6 @@ function computeDaysRemaining(endDate) {
   return daysDiff < 0 ? 0 : daysDiff;
 }
 
-// Calculate days remaining for assignment based on status
-// For PREBOOKED: days from today (inclusive) until the day before start_date (inclusive)
-// For ACTIVE: days from today until end_date
-function computeDaysRemainingByStatus(startDate, endDate, status) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  if (status === 'PREBOOKED') {
-    // Calculate days from today (inclusive) until day before start_date (inclusive)
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - 1); // Day before start_date
-    
-    const timeDiff = start - today;
-    const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-    
-    // Add 1 to include today in the count
-    return daysDiff < 0 ? 0 : daysDiff + 1;
-  } else {
-    // For ACTIVE and other statuses, use end_date
-    return computeDaysRemaining(endDate);
-  }
-}
-
 // Calculate total days between two dates (inclusive)
 function calculateTotalDays(startDate, endDate) {
   const start = new Date(startDate);
@@ -61,9 +37,7 @@ function isPriority(endDate) {
 // Get date N days from a given date (or from now if no date provided)
 function getDateNDaysFromNow(days, fromDate = null) {
   const date = fromDate ? new Date(fromDate) : new Date();
-  // Subtract 1 from days because the start date is day 1
-  // e.g., 1 day = same day (add 0), 2 days = next day (add 1), etc.
-  date.setDate(date.getDate() + parseInt(days) - 1);
+  date.setDate(date.getDate() + parseInt(days));
   return date;
 }
 
@@ -77,7 +51,6 @@ function formatDateForDb(date) {
 
 module.exports = {
   computeDaysRemaining,
-  computeDaysRemainingByStatus,
   calculateTotalDays,
   isPriority,
   getDateNDaysFromNow,

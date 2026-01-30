@@ -93,7 +93,7 @@ const DashboardPage = () => {
           <Card>
             <div className="text-center">
               <p className="text-gray-600 text-sm font-medium">Active</p>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.assigned || 0}</p>
+              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.active || 0}</p>
             </div>
           </Card>
 
