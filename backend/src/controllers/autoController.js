@@ -4,6 +4,65 @@ const { computeDaysRemaining, formatDateForDb } = require('../utils/dateUtils');
 const { mergeConsecutiveAssignments, isConsecutive } = require('../utils/assignmentMerge');
 
 /**
+ * Helper function to determine the correct status of an auto based on its assignments
+ * Logic:
+ * - ACTIVE: if start_date <= today <= end_date
+ * - PREBOOKED: if start_date > today
+ * - IDLE: if no ACTIVE or PREBOOKED assignments exist
+ * - COMPLETED: if end_date < today (not displayed, only for historical records)
+ * 
+ * @param {Array} assignments - Array of assignments for the auto
+ * @returns {string} Status: 'IDLE', 'ACTIVE', or 'PREBOOKED'
+ */
+const determineAutoStatus = (assignments) => {
+  if (!assignments || assignments.length === 0) {
+    return 'IDLE';
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Find assignments that are active or prebooked (not completed)
+  const activeOrPrebookedAssignments = assignments.filter(a => {
+    if (!a.start_date || !a.end_date) return false;
+    
+    const startDate = new Date(a.start_date);
+    const endDate = new Date(a.end_date);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+    
+    // Include only assignments where end_date >= today
+    return endDate >= today;
+  });
+
+  // If no non-completed assignments, auto is IDLE
+  if (activeOrPrebookedAssignments.length === 0) {
+    return 'IDLE';
+  }
+
+  // Check status of each assignment
+  for (const assignment of activeOrPrebookedAssignments) {
+    const startDate = new Date(assignment.start_date);
+    const endDate = new Date(assignment.end_date);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+
+    // ACTIVE: if start_date <= today <= end_date
+    if (startDate <= today && today <= endDate) {
+      return 'ACTIVE';
+    }
+
+    // PREBOOKED: if start_date > today
+    if (startDate > today) {
+      return 'PREBOOKED';
+    }
+  }
+
+  // If none of the above match, return IDLE
+  return 'IDLE';
+};
+
+/**
  * Helper function to check if two dates are consecutive (no gap)
  * @param {Date} endDate - End date of first assignment
  * @param {Date} startDate - Start date of next assignment
@@ -27,9 +86,8 @@ exports.listAutos = async (req, res, next) => {
     const { search, area_id, status } = req.query;
     const filters = {};
 
-    // Don't pass search to Auto.findAll since we need to filter AFTER enriching with company name
+    // Don't pass status here - we'll filter by display_status AFTER enriching
     if (area_id) filters.area_id = area_id;
-    if (status) filters.status = status;
 
     let autos = await Auto.findAll(filters);
     
@@ -40,6 +98,20 @@ exports.listAutos = async (req, res, next) => {
 
     for (const auto of autos) {
       const allAssignments = await Assignment.findByAutoId(auto.id);
+      
+      // Update statuses for expired assignments
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      for (const assignment of allAssignments) {
+        const endDate = new Date(assignment.end_date);
+        endDate.setHours(0, 0, 0, 0);
+        
+        if (endDate < today && assignment.status !== 'COMPLETED') {
+          await Assignment.updateStatus(assignment.id, 'COMPLETED');
+          assignment.status = 'COMPLETED';
+        }
+      }
       
       // Enrich all assignments with company_name
       const Company = require('../models/Company');
@@ -59,12 +131,13 @@ exports.listAutos = async (req, res, next) => {
         .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
       if (activePreBookedAssignments.length === 0) {
-        // No active/prebooked assignments
+        // No active/prebooked assignments - determine status from all assignments
+        const displayStatus = determineAutoStatus(enrichedAssignments);
         expandedAutos.push({
           ...auto,
           days_remaining: null,
           current_company: null,
-          display_status: auto.status, // Keep original status (IDLE)
+          display_status: displayStatus,
           assignments: enrichedAssignments, // Include enriched assignments array
         });
       } else {
@@ -98,25 +171,9 @@ exports.listAutos = async (req, res, next) => {
           }
         }
 
-        const assignmentStart = new Date(mostRecentAssignment.start_date);
-        assignmentStart.setHours(0, 0, 0, 0);
+        // Use the new helper function to determine display status based on dates
+        const displayStatus = determineAutoStatus(enrichedAssignments);
         
-        // Determine display status based on assignment status and dates
-        let displayStatus = 'ACTIVE';
-        const assignmentEnd = new Date(mostRecentAssignment.end_date);
-        assignmentEnd.setHours(0, 0, 0, 0);
-        
-        if (mostRecentAssignment.status === 'PREBOOKED') {
-          displayStatus = 'PREBOOKED';
-        } else if (mostRecentAssignment.status === 'ACTIVE') {
-          // Check if actually in date range
-          if (today >= assignmentStart && today <= assignmentEnd) {
-            displayStatus = 'ACTIVE';
-          } else if (today < assignmentStart) {
-            displayStatus = 'PREBOOKED';
-          }
-        }
-
         expandedAutos.push({
           ...auto,
           days_remaining: computeDaysRemaining(mergedEndDate),
@@ -129,13 +186,32 @@ exports.listAutos = async (req, res, next) => {
 
     // Apply search filter AFTER enriching with company name
     if (search) {
-      const searchRegex = new RegExp(search, 'i');
-      expandedAutos = expandedAutos.filter(auto =>
-        searchRegex.test(auto.auto_no || '') ||
-        searchRegex.test(auto.owner_name || '') ||
-        searchRegex.test(auto.area_name || '') ||
-        searchRegex.test(auto.pin_code || '') ||
-        searchRegex.test(auto.current_company || '')
+      const searchLower = search.toLowerCase().trim();
+      expandedAutos = expandedAutos.filter(auto => {
+        // Check all searchable fields
+        const autoNo = (auto.auto_no || '').toLowerCase();
+        const ownerName = (auto.owner_name || '').toLowerCase();
+        const areaName = (auto.area_name || '').toLowerCase();
+        const pinCode = (auto.pin_code || '').toLowerCase();
+        const company = (auto.current_company || '').toLowerCase();
+        const autoStatus = (auto.display_status || auto.status || '').toLowerCase();
+        
+        // Return true if search term matches any field (substring match)
+        return (
+          autoNo.includes(searchLower) ||
+          ownerName.includes(searchLower) ||
+          areaName.includes(searchLower) ||
+          pinCode.includes(searchLower) ||
+          company.includes(searchLower) ||
+          autoStatus.includes(searchLower)
+        );
+      });
+    }
+
+    // Apply status filter AFTER enriching (filter by display_status, not stored status)
+    if (status) {
+      expandedAutos = expandedAutos.filter(auto => 
+        (auto.display_status || auto.status) === status
       );
     }
 
@@ -173,7 +249,14 @@ exports.getAuto = async (req, res, next) => {
       };
     });
 
-    res.json({ ...auto, assignments: enrichedAssignments });
+    // Calculate display status based on dates
+    const displayStatus = determineAutoStatus(enrichedAssignments);
+
+    res.json({ 
+      ...auto, 
+      assignments: enrichedAssignments,
+      display_status: displayStatus,
+    });
   } catch (error) {
     next(error);
   }

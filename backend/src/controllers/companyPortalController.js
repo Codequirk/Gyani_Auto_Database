@@ -45,40 +45,6 @@ function getCorrectAssignmentStatus(startDate, endDate) {
  * Helper function to check if an auto has expired assignments and update auto status if needed
  * Sets auto to IDLE if all assignments are COMPLETED
  */
-async function updateAutoStatusIfExpired(autoId) {
-  try {
-    const assignments = await Assignment.findByAutoId(autoId);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Update status for all assignments based on dates
-    for (const assignment of assignments) {
-      const correctStatus = getCorrectAssignmentStatus(assignment.start_date, assignment.end_date);
-      if (assignment.status !== correctStatus) {
-        await Assignment.updateStatus(assignment.id, correctStatus);
-      }
-    }
-    
-    // Refresh assignments after status updates
-    const refreshedAssignments = await Assignment.findByAutoId(autoId);
-    
-    // Check remaining active/prebooked assignments
-    const hasActiveAssignment = refreshedAssignments.some(a => a.status === 'ACTIVE');
-    const hasPreAssignedAssignment = refreshedAssignments.some(a => a.status === 'PREBOOKED');
-    
-    if (hasActiveAssignment) {
-      await Auto.updateStatus(autoId, 'ASSIGNED');
-    } else if (hasPreAssignedAssignment) {
-      await Auto.updateStatus(autoId, 'PRE_ASSIGNED');
-    } else {
-      // All assignments are COMPLETED or none exist
-      await Auto.updateStatus(autoId, 'IDLE');
-    }
-  } catch (error) {
-    console.error(`Error updating auto status for ${autoId}:`, error);
-  }
-}
-
 exports.getCompanyProfile = async (req, res, next) => {
   try {
     const { company_id } = req.params;
@@ -108,10 +74,18 @@ exports.getCompanyAssignments = async (req, res, next) => {
     // Get all assignments for this company
     const assignments = await Assignment.findByCompanyId(company_id);
     
-    // Check each assignment for expiration and update auto status if needed
-    const uniqueAutos = new Set(assignments.map(a => a.auto_id));
-    for (const autoId of uniqueAutos) {
-      await updateAutoStatusIfExpired(autoId);
+    // Update statuses for expired assignments
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const assignment of assignments) {
+      const endDate = new Date(assignment.end_date);
+      endDate.setHours(0, 0, 0, 0);
+      
+      if (endDate < today && assignment.status !== 'COMPLETED') {
+        await Assignment.updateStatus(assignment.id, 'COMPLETED');
+        assignment.status = 'COMPLETED';
+      }
     }
     
     // Enrich with auto details and days remaining
@@ -169,12 +143,22 @@ exports.getCompanyDashboard = async (req, res, next) => {
     // Get assignments
     const assignments = await Assignment.findByCompanyId(company_id);
     
-    // Check each assignment for expiration and update auto status if needed
-    const uniqueAutos = new Set(assignments.map(a => a.auto_id));
-    for (const autoId of uniqueAutos) {
-      await updateAutoStatusIfExpired(autoId);
+    // Filter and update statuses if needed - mark COMPLETED if end_date has passed
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const assignment of assignments) {
+      const endDate = new Date(assignment.end_date);
+      endDate.setHours(0, 0, 0, 0);
+      
+      // If assignment has ended and isn't marked as COMPLETED, update it
+      if (endDate < today && assignment.status !== 'COMPLETED') {
+        await Assignment.updateStatus(assignment.id, 'COMPLETED');
+        assignment.status = 'COMPLETED';
+      }
     }
     
+    // Filter only ACTIVE and PREBOOKED (not COMPLETED)
     const activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
     const prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
 

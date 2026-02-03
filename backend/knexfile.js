@@ -1,14 +1,25 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 module.exports = {
   development: {
     client: 'pg',
-    connection: {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
-      database: process.env.DB_NAME || 'admin_panel_db',
+    connection: process.env.DATABASE_URL || {
+      host: process.env.DB_HOST,
+      port: parseInt(process.env.DB_PORT) || 5432,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      connectionTimeoutMillis: 30000,
+      idleTimeoutMillis: 30000,
+    },
+    pool: {
+      min: 0,
+      max: 3,
+      reapIntervalMillis: 1000,
     },
     migrations: {
       directory: './src/migrations',
@@ -21,7 +32,22 @@ module.exports = {
   },
   production: {
     client: 'pg',
-    connection: process.env.DATABASE_URL,
+    connection: {
+      host: process.env.DB_HOST,
+      port: parseInt(process.env.DB_PORT) || 5432,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      ssl: 'require',
+      // Remove family restriction
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
+      statement_timeout: 30000,
+    },
+    pool: {
+      min: 0,
+      max: 5,
+    },
     migrations: {
       directory: './src/migrations',
       extension: 'js',

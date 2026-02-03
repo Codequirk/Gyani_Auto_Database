@@ -1,4 +1,7 @@
-require('dotenv').config();
+console.log('[STARTUP] Beginning backend startup...');
+
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -54,12 +57,64 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Start cleanup scheduler
-startCleanupScheduler();
+console.log('[DEBUG] About to start cleanup scheduler...');
+try {
+  // TEMPORARILY DISABLED FOR DEBUGGING
+  // startCleanupScheduler();
+  console.log('[DEBUG] Cleanup scheduler DISABLED for debugging');
+} catch (err) {
+  console.error('[ERROR] Failed to start cleanup scheduler:', err.message);
+}
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`✓ Server running on port ${PORT}`);
+const PORT = 5001;  // Hardcoded for testing
+console.log(`[DEBUG] About to start server on port ${PORT}...`);
+console.log('[DEBUG] All error handlers registered');
+
+// Handle uncaught exceptions BEFORE starting server
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections BEFORE starting server
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection:', reason);
+  process.exit(1);
+});
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✓ Server running on http://0.0.0.0:${PORT}`);
   console.log(`✓ Using PostgreSQL database`);
+  console.log('[DEBUG] Server callback executed successfully');
+});
+
+// Keep the process alive
+setImmediate(() => {
+  console.log('[DEBUG] Process is alive and event loop is running');
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  console.error('❌ Server error:', err.message);
+  console.error('Error code:', err.code);
+  console.error(err.stack);
+  if (err.code === 'EADDRINUSE') {
+    console.error('Port 5001 is already in use!');
+  }
+  process.exit(1);
+});
+
+server.on('listening', () => {
+  console.log('[DEBUG] ✅ Server is now actually listening on port 5001');
+});
+
+server.on('close', () => {
+  console.log('[DEBUG] Server closed');
+});
+
+server.on('close', () => {
+  console.log('[DEBUG] Server closed');
 });
 
 module.exports = app;

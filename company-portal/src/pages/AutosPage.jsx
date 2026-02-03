@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../hooks/useFetch';
+import { useFetch, usePolling } from '../hooks/useFetch';
 import { autoService, assignmentService, areaService, companyService } from '../services/api';
 import { Card, Button, Input, Modal, LoadingSpinner, Badge, ErrorAlert } from '../components/UI';
 import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
@@ -99,10 +99,15 @@ const AutosPage = () => {
     return () => clearTimeout(debounceTimer.current);
   }, [search]);
 
-  const { data: autos, loading: autosLoading, refetch: refetchAutos } = useFetch(
+  const { data: autos, loading: autosLoading, refetch: refetchAutos } = usePolling(
     () => autoService.list({ search: debouncedSearch, area_id: selectedArea, status: selectedStatus }),
-    [debouncedSearch, selectedArea, selectedStatus]
+    30000 // Refresh every 30 seconds
   );
+
+  useEffect(() => {
+    // Re-fetch when filters change
+    refetchAutos();
+  }, [debouncedSearch, selectedArea, selectedStatus]);
 
   const { data: areas, refetch: refetchAreas } = useFetch(() => areaService.list());
   const { data: companies } = useFetch(() => companyService.list());

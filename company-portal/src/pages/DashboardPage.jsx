@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { dashboardService, assignmentService, autoService } from '../services/api';
+import { companyPortalService, assignmentService, autoService } from '../services/api';
 import { Card, Button, LoadingSpinner, Badge } from '../components/UI';
 import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 
 const DashboardPage = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, admin } = useAuth();
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
-  const [idleAutos, setIdleAutos] = useState([]);
-  const [priorityAutos, setPriorityAutos] = useState([]);
+  const [activeAssignments, setActiveAssignments] = useState([]);
+  const [prebookedAssignments, setPrebookedAssignments] = useState([]);
+  const [priorityAssignments, setPriorityAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedList, setExpandedList] = useState(false);
@@ -20,10 +21,20 @@ const DashboardPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const summaryRes = await dashboardService.getSummary();
-        setSummary(summaryRes.data.summary);
-        setIdleAutos(summaryRes.data.idle_autos);
-        setPriorityAutos(summaryRes.data.priority_autos);
+        // Get company_id from auth context
+        const companyId = admin?.id;
+        if (!companyId) {
+          setError('Company ID not found');
+          setLoading(false);
+          return;
+        }
+
+        // Fetch dashboard data for this company
+        const dashboardRes = await companyPortalService.getDashboard(companyId);
+        setSummary(dashboardRes.data.summary);
+        setActiveAssignments(dashboardRes.data.active_assignments || []);
+        setPrebookedAssignments(dashboardRes.data.prebooked_assignments || []);
+        setPriorityAssignments(dashboardRes.data.priority_assignments || []);
 
         if (expandedList) {
           try {
@@ -51,7 +62,7 @@ const DashboardPage = () => {
     if (isAuthenticated) {
       fetchData();
     }
-  }, [isAuthenticated, expandedList]);
+  }, [isAuthenticated, admin, expandedList]);
 
   if (!isAuthenticated) {
     return <div>Please log in</div>;
@@ -76,29 +87,29 @@ const DashboardPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <div className="text-center">
-              <p className="text-gray-600 text-sm font-medium">Idle</p>
-              <p className="text-4xl font-bold text-yellow-600 mt-2">{summary?.idle || 0}</p>
-            </div>
-          </Card>
-
-          <Card>
-            <div className="text-center">
-              <p className="text-gray-600 text-sm font-medium">Prebooked</p>
-              <p className="text-4xl font-bold text-purple-600 mt-2">{summary?.prebooked || 0}</p>
+              <p className="text-gray-600 text-sm font-medium">Total Assigned</p>
+              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.total_assignments || 0}</p>
             </div>
           </Card>
 
           <Card>
             <div className="text-center">
               <p className="text-gray-600 text-sm font-medium">Active</p>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{summary?.active || 0}</p>
+              <p className="text-4xl font-bold text-green-600 mt-2">{activeAssignments.length}</p>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="text-center">
+              <p className="text-gray-600 text-sm font-medium">Prebooked</p>
+              <p className="text-4xl font-bold text-purple-600 mt-2">{prebookedAssignments.length}</p>
             </div>
           </Card>
 
           <Card>
             <div className="text-center">
               <p className="text-gray-600 text-sm font-medium">Priority (2 days)</p>
-              <p className="text-4xl font-bold text-orange-600 mt-2">{summary?.priority_2days || 0}</p>
+              <p className="text-4xl font-bold text-orange-600 mt-2">{priorityAssignments.length}</p>
             </div>
           </Card>
         </div>
@@ -109,25 +120,23 @@ const DashboardPage = () => {
             <Badge variant="danger">PRIORITY</Badge>
             <span className="ml-2">2 Days Remaining</span>
           </h2>
-          {priorityAutos.length > 0 ? (
+          {priorityAssignments.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="px-4 py-2 text-left">Auto No</th>
                     <th className="px-4 py-2 text-left">Owner</th>
-                    <th className="px-4 py-2 text-left">Company</th>
                     <th className="px-4 py-2 text-left">Start Date</th>
                     <th className="px-4 py-2 text-left">End Date</th>
                     <th className="px-4 py-2 text-left">Days Left</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {priorityAutos.map((auto) => (
+                  {priorityAssignments.map((auto) => (
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
-                      <td className="px-4 py-2">{auto.company_name || '-'}</td>
                       <td className="px-4 py-2">{formatDate(auto.start_date)}</td>
                       <td className="px-4 py-2">{formatDate(auto.end_date)}</td>
                       <td className="px-4 py-2">
@@ -145,10 +154,10 @@ const DashboardPage = () => {
           )}
         </Card>
 
-        {/* Idle Slots List */}
+        {/* Active Assignments List */}
         <Card className="mb-8">
-          <h2 className="text-xl font-bold mb-4">Empty Slots</h2>
-          {idleAutos.length > 0 ? (
+          <h2 className="text-xl font-bold mb-4">Active Assignments</h2>
+          {activeAssignments.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
@@ -156,23 +165,66 @@ const DashboardPage = () => {
                     <th className="px-4 py-2 text-left">Auto No</th>
                     <th className="px-4 py-2 text-left">Owner</th>
                     <th className="px-4 py-2 text-left">Area</th>
-                    <th className="px-4 py-2 text-left">Last Updated</th>
+                    <th className="px-4 py-2 text-left">Start Date</th>
+                    <th className="px-4 py-2 text-left">End Date</th>
+                    <th className="px-4 py-2 text-left">Days Left</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {idleAutos.map((auto) => (
+                  {activeAssignments.map((auto) => (
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
-                      <td className="px-4 py-2">{formatDate(auto.last_updated_at)}</td>
+                      <td className="px-4 py-2">{formatDate(auto.start_date)}</td>
+                      <td className="px-4 py-2">{formatDate(auto.end_date)}</td>
+                      <td className="px-4 py-2">
+                        <Badge className="bg-green-100 text-green-800">{auto.days_remaining} days</Badge>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <p className="text-gray-600">No idle autos</p>
+            <p className="text-gray-600">No active assignments</p>
+          )}
+        </Card>
+
+        {/* Prebooked Assignments List */}
+        <Card className="mb-8">
+          <h2 className="text-xl font-bold mb-4">Prebooked Assignments</h2>
+          {prebookedAssignments.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Auto No</th>
+                    <th className="px-4 py-2 text-left">Owner</th>
+                    <th className="px-4 py-2 text-left">Area</th>
+                    <th className="px-4 py-2 text-left">Start Date</th>
+                    <th className="px-4 py-2 text-left">End Date</th>
+                    <th className="px-4 py-2 text-left">Days Until Start</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prebookedAssignments.map((auto) => (
+                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                      <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
+                      <td className="px-4 py-2">{auto.owner_name}</td>
+                      <td className="px-4 py-2">{auto.area_name}</td>
+                      <td className="px-4 py-2">{formatDate(auto.start_date)}</td>
+                      <td className="px-4 py-2">{formatDate(auto.end_date)}</td>
+                      <td className="px-4 py-2">
+                        <Badge className="bg-purple-100 text-purple-800">{auto.days_remaining} days</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-600">No prebooked assignments</p>
           )}
         </Card>
 

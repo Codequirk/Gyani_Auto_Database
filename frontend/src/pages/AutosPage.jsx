@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../hooks/useFetch';
+import { useFetch, usePolling } from '../hooks/useFetch';
 import { autoService, assignmentService, areaService, companyService } from '../services/api';
 import { Card, Button, Input, Modal, LoadingSpinner, Badge, ErrorAlert } from '../components/UI';
 import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
@@ -101,7 +101,7 @@ const AutosPage = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [availableAutosInDateRange, setAvailableAutosInDateRange] = useState([]);
-  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: area, 3: days/date, 4: select autos
+  const [wizardStep, setWizardStep] = useState(1); // 1: company, 2: autos_required, 3: days/date/cost, 4: area, 5: select autos
   const [wizardSearchAutos, setWizardSearchAutos] = useState('');
   const [showAddAreaModal, setShowAddAreaModal] = useState(false);
   const [newArea, setNewArea] = useState({ name: '', pin_code: '' });
@@ -125,10 +125,15 @@ const AutosPage = () => {
     return () => clearTimeout(debounceTimer.current);
   }, [search]);
 
-  const { data: autos, loading: autosLoading, refetch: refetchAutos } = useFetch(
+  const { data: autos, loading: autosLoading, refetch: refetchAutos } = usePolling(
     () => autoService.list({ search: debouncedSearch, area_id: selectedArea, status: selectedStatus }),
-    [debouncedSearch, selectedArea, selectedStatus]
+    30000 // Refresh every 30 seconds
   );
+
+  useEffect(() => {
+    // Re-fetch when filters change
+    refetchAutos();
+  }, [debouncedSearch, selectedArea, selectedStatus]);
 
   const { data: allAutos } = useFetch(() => autoService.list());
 
@@ -148,7 +153,9 @@ const AutosPage = () => {
   const calculateEndDate = (startDate, days) => {
     const start = new Date(startDate);
     const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(days));
+    // If 1 day is selected, end date should be the same day (start date)
+    // So we add (days - 1) to the start date
+    end.setDate(end.getDate() + (parseInt(days) - 1));
     return end;
   };
 
@@ -159,7 +166,8 @@ const AutosPage = () => {
 
   const getIdleAutoCountByArea = (areaId) => {
     if (!allAutos) return 0;
-    return allAutos.filter(auto => auto.area_id === areaId && auto.status === 'IDLE').length;
+    // Use display_status which is calculated based on date ranges
+    return allAutos.filter(auto => auto.area_id === areaId && (auto.display_status === 'IDLE' || auto.status === 'IDLE')).length;
   };
 
   const getAvailableIdleAutoCountByArea = (areaId, startDate, endDateStr) => {
@@ -171,19 +179,23 @@ const AutosPage = () => {
     return autos.filter(auto => {
       if (auto.area_id !== areaId) return false;
       
-      // Count IDLE autos
-      if (auto.status === 'IDLE') return true;
+      // Use display_status (calculated based on dates) 
+      const status = auto.display_status || auto.status;
       
-      // Also count non-IDLE autos that will become IDLE before our start date
+      // Count IDLE autos
+      if (status === 'IDLE') return true;
+      
+      // Also count autos with expired assignments that will become IDLE before our start date
       if (auto.assignments && auto.assignments.length > 0) {
         const sortedAssignments = [...auto.assignments].sort(
-          (a, b) => new Date(b.start_date) - new Date(a.start_date)
+          (a, b) => new Date(b.end_date) - new Date(a.end_date)
         );
         const mostRecentAssignment = sortedAssignments[0];
         
         if (mostRecentAssignment) {
           const assignmentEndDate = new Date(mostRecentAssignment.end_date);
           assignmentEndDate.setHours(0, 0, 0, 0);
+          // Auto is available if most recent assignment ends before our start date
           return assignmentEndDate < newStartDate;
         }
       }
@@ -197,23 +209,65 @@ const AutosPage = () => {
     return allAutos.length;
   };
 
+  const isAutoAvailableForDateRange = (auto, startDate, endDate) => {
+    // Convert dates to proper format for comparison
+    const newStart = new Date(startDate);
+    newStart.setHours(0, 0, 0, 0);
+    const newEnd = new Date(endDate);
+    newEnd.setHours(0, 0, 0, 0);
+
+    // IDLE autos are always available
+    if (auto.display_status === 'IDLE' || auto.status === 'IDLE') {
+      return true;
+    }
+
+    // If auto has assignments, check if ANY assignment overlaps with our date range
+    if (auto.assignments && auto.assignments.length > 0) {
+      // An assignment overlaps if: assignmentStart <= ourEnd AND assignmentEnd >= ourStart
+      const hasOverlap = auto.assignments.some(assignment => {
+        const assignStart = new Date(assignment.start_date);
+        assignStart.setHours(0, 0, 0, 0);
+        const assignEnd = new Date(assignment.end_date);
+        assignEnd.setHours(0, 0, 0, 0);
+
+        // Check if assignment is NOT completed
+        if (assignment.status === 'COMPLETED') {
+          return false; // Completed assignments don't block availability
+        }
+
+        // Check for overlap: assignStart <= newEnd AND assignEnd >= newStart
+        return assignStart <= newEnd && assignEnd >= newStart;
+      });
+
+      // Auto is available if NO overlapping assignments exist
+      return !hasOverlap;
+    }
+
+    return true; // No assignments, so available
+  };
+
   const isAutoAvailableInDateRange = (auto, newStartDate) => {
     // Convert new start date to proper format for comparison
     const newStart = new Date(newStartDate);
     newStart.setHours(0, 0, 0, 0);
 
     // IDLE autos are always available
-    if (auto.status === 'IDLE') {
+    if (auto.display_status === 'IDLE' || auto.status === 'IDLE') {
       return true;
     }
 
-    // For ASSIGNED/PRE_ASSIGNED autos, check if their end_date is before the new start_date
-    if (auto.status === 'ASSIGNED' || auto.status === 'PRE_ASSIGNED') {
-      // Find if auto has any current/future assignments
-      // The auto object should contain assignment info through the API
-      // For now, we check if display_status shows availability
-      // We need to fetch full assignment details to check end_date
-      return false; // Default: not available unless we confirm via API
+    // For ACTIVE/PREBOOKED autos, check if their end_date is before the new start_date
+    if (auto.assignments && auto.assignments.length > 0) {
+      // Check if ANY assignment overlaps with or extends past our start date
+      const hasConflict = auto.assignments.some(assignment => {
+        const assignEnd = new Date(assignment.end_date);
+        assignEnd.setHours(0, 0, 0, 0);
+
+        // Conflict if assignment doesn't end before our start
+        return assignEnd >= newStart && assignment.status !== 'COMPLETED';
+      });
+
+      return !hasConflict; // Available if no conflicts
     }
 
     return false;
@@ -234,39 +288,15 @@ const AutosPage = () => {
     const newStartDate = new Date(wizardData.start_date);
     newStartDate.setHours(0, 0, 0, 0);
     
+    const newEndDate = calculateEndDate(wizardData.start_date, wizardData.days);
+    newEndDate.setHours(0, 0, 0, 0);
+    
     // Get available autos for the selected area and date range
-    // Separate IDLE autos and ASSIGNED/PRE_ASSIGNED autos that are available
-    const idleAutos = autos?.filter(auto => 
-      auto.area_id === wizardData.area_id && auto.status === 'IDLE'
+    // Filter autos that are truly available for the selected date range
+    const available = autos?.filter(auto => 
+      auto.area_id === wizardData.area_id && 
+      isAutoAvailableForDateRange(auto, newStartDate, newEndDate)
     ) || [];
-    
-    const availableNonIdleAutos = autos?.filter(auto => {
-      if (auto.area_id !== wizardData.area_id) return false;
-      if (auto.status === 'IDLE') return false;
-      
-      // For ASSIGNED/PRE_ASSIGNED autos, check if end_date (if available) is before new start_date
-      // The list endpoint returns assignments info, we need to check the most recent assignment's end_date
-      if (auto.assignments && auto.assignments.length > 0) {
-        // Get the most recent assignment
-        const sortedAssignments = [...auto.assignments].sort(
-          (a, b) => new Date(b.start_date) - new Date(a.start_date)
-        );
-        const mostRecentAssignment = sortedAssignments[0];
-        
-        if (mostRecentAssignment) {
-          const assignmentEndDate = new Date(mostRecentAssignment.end_date);
-          assignmentEndDate.setHours(0, 0, 0, 0);
-          
-          // Auto is available if assignment ends before new assignment starts
-          return assignmentEndDate < newStartDate;
-        }
-      }
-      
-      return false;
-    }) || [];
-    
-    // Combine with IDLE autos first, then available non-IDLE autos that will become IDLE
-    const available = [...idleAutos, ...availableNonIdleAutos];
     
     // Auto-select up to the requested number of autos (prioritizing IDLE)
     const autoCountNeeded = parseInt(wizardData.autos_required) || 4;
@@ -297,16 +327,16 @@ const AutosPage = () => {
       setError('Please enter the number of autos you need');
       return;
     }
-    if (wizardStep === 3 && !wizardData.area_id) {
-      setError('Please select an area');
-      return;
-    }
-    if (wizardStep === 4 && (!wizardData.start_date || !wizardData.days)) {
+    if (wizardStep === 3 && (!wizardData.start_date || !wizardData.days)) {
       setError('Please enter start date and number of days');
       return;
     }
-    if (wizardStep === 4 && (!wizardData.cost_per_day || parseFloat(wizardData.cost_per_day) <= 0)) {
+    if (wizardStep === 3 && (!wizardData.cost_per_day || parseFloat(wizardData.cost_per_day) <= 0)) {
       setError('Please enter a valid cost per day (must be greater than 0)');
+      return;
+    }
+    if (wizardStep === 4 && !wizardData.area_id) {
+      setError('Please select an area');
       return;
     }
 
@@ -807,8 +837,8 @@ const AutosPage = () => {
             >
               <option value="">All Status</option>
               <option value="IDLE">Idle</option>
-              <option value="PRE_ASSIGNED">Pre-assigned</option>
-              <option value="ASSIGNED">Assigned</option>
+              <option value="PREBOOKED">Pre-booked</option>
+              <option value="ACTIVE">Active</option>
             </select>
 
             {/* Available Areas Dropdown */}
@@ -1027,44 +1057,6 @@ const AutosPage = () => {
         {wizardStep === 3 && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Area *
-            </label>
-            <div className="space-y-2 mb-4">
-              {areas?.map((area) => {
-                let availableCount = 0;
-                // Only calculate dynamic counts if we have dates
-                if (wizardData.start_date && wizardData.days) {
-                  const endDate = calculateEndDate(wizardData.start_date, wizardData.days);
-                  availableCount = getAvailableIdleAutoCountByArea(area.id, wizardData.start_date, endDate);
-                } else {
-                  availableCount = getIdleAutoCountByArea(area.id);
-                }
-                  
-                return (
-                  <button
-                    key={area.id}
-                    onClick={() => {
-                      setWizardData({ ...wizardData, area_id: area.id });
-                      setError('');
-                      setWizardStep(4);
-                    }}
-                    className="w-full text-left p-3 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
-                  >
-                    <div className="font-medium">{area.name}</div>
-                    <div className="text-sm text-gray-600">
-                      {area.pin_code && `${area.pin_code} • `}
-                      {availableCount} available{availableCount !== 1 ? '' : ''}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {wizardStep === 4 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
               Start Date *
             </label>
             <Input
@@ -1136,6 +1128,75 @@ const AutosPage = () => {
           </div>
         )}
 
+        {wizardStep === 4 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Area *
+            </label>
+            <div className="space-y-2 mb-4">
+              {areas?.map((area) => {
+                let availableCount = 0;
+                // Only calculate dynamic counts if we have dates
+                if (wizardData.start_date && wizardData.days) {
+                  const endDate = calculateEndDate(wizardData.start_date, wizardData.days);
+                  availableCount = getAvailableIdleAutoCountByArea(area.id, wizardData.start_date, endDate);
+                } else {
+                  availableCount = getIdleAutoCountByArea(area.id);
+                }
+                  
+                return (
+                  <button
+                    key={area.id}
+                    onClick={() => {
+                      // When area is selected, populate available autos for step 5
+                      const newStartDate = new Date(wizardData.start_date);
+                      newStartDate.setHours(0, 0, 0, 0);
+                      
+                      const newEndDate = calculateEndDate(wizardData.start_date, wizardData.days);
+                      newEndDate.setHours(0, 0, 0, 0);
+                      
+                      // Get available autos for the selected area and date range (IDLE during assignment period)
+                      const available = autos?.filter(auto => 
+                        auto.area_id === area.id && 
+                        isAutoAvailableForDateRange(auto, newStartDate, newEndDate)
+                      ) || [];
+                      
+                      // Sort by current date status priority:
+                      // 1. IDLE (not active, not prebooked today)
+                      // 2. ACTIVE (not idle, not prebooked today)
+                      // 3. PREBOOKED (not idle, not active today)
+                      const sortedByPriority = [...available].sort((a, b) => {
+                        const aStatus = a.display_status || a.status;
+                        const bStatus = b.display_status || b.status;
+                        
+                        const statusPriority = { 'IDLE': 0, 'ACTIVE': 1, 'PREBOOKED': 2 };
+                        const aPriority = statusPriority[aStatus] !== undefined ? statusPriority[aStatus] : 999;
+                        const bPriority = statusPriority[bStatus] !== undefined ? statusPriority[bStatus] : 999;
+                        
+                        return aPriority - bPriority;
+                      });
+                      
+                      // Do NOT pre-select in Step 4, let Step 5 handle selection
+                      setAvailableAutosInDateRange(sortedByPriority);
+                      setWizardData({ ...wizardData, area_id: area.id, selectedAutoIds: new Set() });
+                      setWizardSearchAutos('');
+                      setError('');
+                      setWizardStep(5);
+                    }}
+                    className="w-full text-left p-3 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
+                  >
+                    <div className="font-medium">{area.name}</div>
+                    <div className="text-sm text-gray-600">
+                      {area.pin_code && `${area.pin_code} • `}
+                      {availableCount} available{availableCount !== 1 ? '' : ''}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {wizardStep === 5 && (
           <div>
             {!autos || autos.length === 0 ? (
@@ -1178,7 +1239,7 @@ const AutosPage = () => {
 
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                <strong>Select Autos to Assign:</strong> {wizardData.selectedAutoIds.size} selected / {availableAutosInDateRange.length} available
+                <strong>Select Autos to Assign:</strong> {wizardData.selectedAutoIds.size} selected / {availableAutosInDateRange.length} available (IDLE during assignment period)
               </p>
             </div>
 
@@ -1194,97 +1255,85 @@ const AutosPage = () => {
               {availableAutosInDateRange.length > 0 ? (
                 <div className="divide-y">
                   {(() => {
-                    // Separate IDLE and available non-IDLE autos
-                    const idleAutos = availableAutosInDateRange.filter(a => a.status === 'IDLE');
-                    const availableNonIdleAutos = availableAutosInDateRange.filter(a => a.status !== 'IDLE');
-                    
-                    const filteredIdleAutos = idleAutos.filter(auto =>
+                    // Get autos that are IDLE during the assignment period
+                    const startDate = new Date(wizardData.start_date);
+                    startDate.setHours(0, 0, 0, 0);
+                    const endDate = calculateEndDate(wizardData.start_date, wizardData.days);
+                    endDate.setHours(0, 0, 0, 0);
+
+                    // Filter autos that are idle during the entire assignment period
+                    const idleDuringAssignment = availableAutosInDateRange.filter(auto =>
+                      isAutoAvailableForDateRange(auto, startDate, endDate)
+                    );
+
+                    // Sort by current status priority: IDLE > ACTIVE > PREBOOKED
+                    // Create a new array to avoid mutating original
+                    const sortedByPriority = [...idleDuringAssignment].sort((a, b) => {
+                      const aStatus = a.display_status || a.status;
+                      const bStatus = b.display_status || b.status;
+                      
+                      // Define priority: lower number = higher priority
+                      const statusPriority = { 'IDLE': 0, 'ACTIVE': 1, 'PREBOOKED': 2 };
+                      const aPriority = statusPriority[aStatus] !== undefined ? statusPriority[aStatus] : 999;
+                      const bPriority = statusPriority[bStatus] !== undefined ? statusPriority[bStatus] : 999;
+                      
+                      return aPriority - bPriority;
+                    });
+
+                    // Filter by search
+                    const filteredAutos = sortedByPriority.filter(auto =>
                       auto.auto_no.toLowerCase().includes(wizardSearchAutos.toLowerCase()) ||
                       auto.owner_name.toLowerCase().includes(wizardSearchAutos.toLowerCase())
                     );
-                    
-                    const filteredNonIdleAutos = availableNonIdleAutos.filter(auto =>
-                      auto.auto_no.toLowerCase().includes(wizardSearchAutos.toLowerCase()) ||
-                      auto.owner_name.toLowerCase().includes(wizardSearchAutos.toLowerCase())
-                    );
 
-                    return (
-                      <>
-                        {/* IDLE Autos Section */}
-                        {filteredIdleAutos.length > 0 && (
-                          <div>
-                            <div className="sticky top-0 bg-green-100 px-3 py-2 font-semibold text-green-900 text-sm">
-                              ✓ Available (IDLE) - {filteredIdleAutos.length}
+                    // Auto-select based on quantity needed (only on first load)
+                    if (wizardData.selectedAutoIds.size === 0 && filteredAutos.length > 0) {
+                      const autoCountNeeded = parseInt(wizardData.autos_required) || 0;
+                      const toSelect = new Set();
+                      for (let i = 0; i < Math.min(autoCountNeeded, filteredAutos.length); i++) {
+                        toSelect.add(filteredAutos[i].id);
+                      }
+                      if (toSelect.size > 0) {
+                        setWizardData(prev => ({
+                          ...prev,
+                          selectedAutoIds: toSelect
+                        }));
+                      }
+                    }
+
+                    return filteredAutos.length > 0 ? (
+                      filteredAutos.map((auto) => (
+                        <div
+                          key={auto.id}
+                          onClick={() => toggleAutoSelection(auto.id)}
+                          className={`p-3 cursor-pointer hover:bg-gray-50 transition border-b ${
+                            wizardData.selectedAutoIds.has(auto.id) ? 'bg-blue-100' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={wizardData.selectedAutoIds.has(auto.id)}
+                              onChange={() => {}}
+                              className="cursor-pointer"
+                            />
+                            <div className="flex-1">
+                              <p className="font-medium">{auto.auto_no}</p>
+                              <p className="text-sm text-gray-600">{auto.owner_name} - {auto.area_name}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Current Status: {auto.display_status || auto.status}
+                              </p>
                             </div>
-                            {filteredIdleAutos.map((auto) => (
-                              <div
-                                key={auto.id}
-                                onClick={() => toggleAutoSelection(auto.id)}
-                                className={`p-3 cursor-pointer hover:bg-gray-50 transition ${
-                                  wizardData.selectedAutoIds.has(auto.id) ? 'bg-blue-100' : ''
-                                }`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={wizardData.selectedAutoIds.has(auto.id)}
-                                    onChange={() => {}}
-                                    className="cursor-pointer"
-                                  />
-                                  <div className="flex-1">
-                                    <p className="font-medium">{auto.auto_no}</p>
-                                    <p className="text-sm text-gray-600">{auto.owner_name} - {auto.area_name}</p>
-                                  </div>
-                                  <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>
-                                    {auto.display_status || auto.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            ))}
+                            <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>
+                              {auto.display_status || auto.status}
+                            </Badge>
                           </div>
-                        )}
-
-                        {/* Available Non-IDLE Autos Section */}
-                        {filteredNonIdleAutos.length > 0 && (
-                          <div>
-                            <div className="sticky top-0 bg-yellow-100 px-3 py-2 font-semibold text-yellow-900 text-sm">
-                              ⏱ Will Become Available (After Current Assignment) - {filteredNonIdleAutos.length}
-                            </div>
-                            {filteredNonIdleAutos.map((auto) => (
-                              <div
-                                key={auto.id}
-                                onClick={() => toggleAutoSelection(auto.id)}
-                                className={`p-3 cursor-pointer hover:bg-gray-50 transition ${
-                                  wizardData.selectedAutoIds.has(auto.id) ? 'bg-blue-100' : ''
-                                }`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={wizardData.selectedAutoIds.has(auto.id)}
-                                    onChange={() => {}}
-                                    className="cursor-pointer"
-                                  />
-                                  <div className="flex-1">
-                                    <p className="font-medium">{auto.auto_no}</p>
-                                    <p className="text-sm text-gray-600">{auto.owner_name} - {auto.area_name}</p>
-                                  </div>
-                                  <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>
-                                    {auto.display_status || auto.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* No results message */}
-                        {filteredIdleAutos.length === 0 && filteredNonIdleAutos.length === 0 && (
-                          <div className="p-6 text-center text-gray-500">
-                            No autos match your search
-                          </div>
-                        )}
-                      </>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-6 text-center text-gray-500">
+                        No autos match your search
+                      </div>
                     );
                   })()}
                 </div>

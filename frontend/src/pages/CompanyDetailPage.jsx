@@ -157,6 +157,22 @@ const CompanyDetailPage = () => {
     [companyId]
   );
 
+  // Set up polling for assignments (30-second refresh)
+  useEffect(() => {
+    if (!companyId) return;
+    
+    const pollInterval = setInterval(() => {
+      refetchAssignments();
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
+  }, [companyId, refetchAssignments]);
+
+  // Debug: Log assignments data
+  useEffect(() => {
+    console.log(`[CompanyDetailPage] Company ID: ${companyId}, Assignments:`, companyAssignments);
+  }, [companyAssignments, companyId]);
+
   // Fetch areas
   const { data: areas = [] } = useFetch(() => areaService.list(), []);
 

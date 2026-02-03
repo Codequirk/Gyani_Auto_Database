@@ -262,10 +262,6 @@ const AutoDetailPage = () => {
                 <p className="text-gray-600 text-sm">Area</p>
                 <p className="text-lg font-medium">{auto.area_name || 'N/A'}</p>
               </div>
-              <div>
-                <p className="text-gray-600 text-sm">Status</p>
-                <Badge className={getStatusBadgeColor(auto.status)}>{auto.status}</Badge>
-              </div>
             </div>
           </Card>
 

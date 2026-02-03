@@ -347,12 +347,17 @@ export default function PaymentAdminPage() {
     const filteredByMonth = selectedMonth === 'all'
       ? filteredByArea
       : filteredByArea.filter(p => {
-          const paymentMonth = new Date(p.created_at).toISOString().slice(0, 7);
+          // Use assigned_time if available, otherwise fall back to created_at
+          const dateToCheck = p.assigned_time || p.created_at;
+          const paymentMonth = new Date(dateToCheck).toISOString().slice(0, 7);
           return paymentMonth === selectedMonth;
         });
 
-    // Get unique months from payments
-    const uniqueMonths = [...new Set(payments.map(p => new Date(p.created_at).toISOString().slice(0, 7)))].sort().reverse();
+    // Get unique months from payments (using assigned_time if available)
+    const uniqueMonths = [...new Set(payments.map(p => {
+      const dateToCheck = p.assigned_time || p.created_at;
+      return new Date(dateToCheck).toISOString().slice(0, 7);
+    }))].sort().reverse();
 
     // Calculate FILTERED REVENUE - sum of filtered payments
     const filteredTotal = filteredByMonth.reduce((sum, payment) => {
@@ -360,13 +365,6 @@ export default function PaymentAdminPage() {
       return sum + totalCost;
     }, 0);
     const filteredCount = filteredByMonth.length;
-
-    // Calculate month-wise revenue
-    const monthlyRevenue = {};
-    payments.forEach(p => {
-      const month = new Date(p.created_at).toISOString().slice(0, 7);
-      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + (p.total_cost || 0);
-    });
 
     return (
       <div className="space-y-6">
@@ -414,21 +412,76 @@ export default function PaymentAdminPage() {
               </select>
             </div>
 
-            {/* Month Filter Dropdown */}
+            {/* Month-Year Calendar Picker */}
             <div>
               <label className="text-sm font-medium text-gray-700 mb-3 block">📅 Filter by Month</label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Months</option>
-                {uniqueMonths.map(month => (
-                  <option key={month} value={month}>
-                    {new Date(month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-                  </option>
-                ))}
-              </select>
+              <div className="bg-white border border-gray-300 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4 gap-2">
+                  <button
+                    onClick={() => {
+                      const [year, month] = selectedMonth.split('-');
+                      const prevMonth = month === '01' ? '12' : String(parseInt(month) - 1).padStart(2, '0');
+                      const prevYear = month === '01' ? String(parseInt(year) - 1) : year;
+                      setSelectedMonth(`${prevYear}-${prevMonth}`);
+                    }}
+                    className="px-2 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded font-semibold"
+                  >
+                    ◀
+                  </button>
+                  
+                  <div className="flex gap-2 flex-1">
+                    {/* Month Input */}
+                    <select
+                      value={selectedMonth.split('-')[1]}
+                      onChange={(e) => {
+                        const [year] = selectedMonth.split('-');
+                        setSelectedMonth(`${year}-${String(e.target.value).padStart(2, '0')}`);
+                      }}
+                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i + 1} value={String(i + 1).padStart(2, '0')}>
+                          {new Date(2000, i).toLocaleString('en-IN', { month: 'short' })}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {/* Year Input */}
+                    <input
+                      type="number"
+                      value={selectedMonth.split('-')[0]}
+                      onChange={(e) => {
+                        const month = selectedMonth.split('-')[1];
+                        const year = e.target.value;
+                        if (year.length <= 4 && parseInt(year) > 0) {
+                          setSelectedMonth(`${year}-${month}`);
+                        }
+                      }}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      min="2000"
+                      max="2099"
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      const [year, month] = selectedMonth.split('-');
+                      const nextMonth = month === '12' ? '01' : String(parseInt(month) + 1).padStart(2, '0');
+                      const nextYear = month === '12' ? String(parseInt(year) + 1) : year;
+                      setSelectedMonth(`${nextYear}-${nextMonth}`);
+                    }}
+                    className="px-2 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded font-semibold"
+                  >
+                    ▶
+                  </button>
+                </div>
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  className="w-full px-3 py-2 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded font-medium"
+                >
+                  View All Months
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -447,37 +500,6 @@ export default function PaymentAdminPage() {
             <p className="text-gray-600 text-sm font-semibold">Total Revenue (All)</p>
             <p className="text-green-600 font-bold text-2xl mt-1">₹{companyTotal.toLocaleString('en-IN')}</p>
           </div>
-        </div>
-
-        {/* Month-wise Revenue Breakdown */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">📊 Month-wise Revenue Breakdown</h3>
-          {uniqueMonths.length > 0 ? (
-            <div className="space-y-3">
-              {uniqueMonths.map(month => {
-                const monthPayments = payments.filter(p => new Date(p.created_at).toISOString().slice(0, 7) === month);
-                const monthTotal = monthPayments.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0);
-                return (
-                  <div key={month} className="flex justify-between items-center p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg border border-green-200">
-                    <div>
-                      <span className="font-medium text-gray-700 block">
-                        {new Date(month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-                      </span>
-                      <span className="text-xs text-gray-500">({monthPayments.length} auto{monthPayments.length !== 1 ? 's' : ''})</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-green-700 font-bold text-2xl block">
-                        ₹{monthTotal.toLocaleString('en-IN')}
-                      </span>
-                      <span className="text-xs text-gray-500">Total for month</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-4">No revenue data available</p>
-          )}
         </div>
 
         {/* Payments Table - Grouped by Date and Area */}

@@ -41,6 +41,7 @@ class Assignment {
     await db('assignments').insert({
       id,
       ...data,
+      assigned_time: new Date(),
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -68,6 +69,7 @@ class Assignment {
       await db('assignments').insert({
         id,
         ...assignment,
+        assigned_time: new Date(),
         created_at: new Date(),
         updated_at: new Date(),
       });
@@ -137,6 +139,7 @@ class Assignment {
     return db('assignments')
       .where('end_date', '<=', thirtyDaysAgo)
       .del();
-  }}
+  }
+}
 
 module.exports = Assignment;

@@ -36,6 +36,7 @@ class Payment {
       id,
       ...data,
       total_cost: totalCost,
+      assigned_time: new Date(),
       created_at: new Date(),
       updated_at: new Date(),
     });
