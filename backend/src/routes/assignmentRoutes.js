@@ -12,6 +12,9 @@ router.get('/bulk', (req, res) => {
 });
 router.get('/company/:companyId', assignmentController.getAssignmentsByCompany);
 
+// GET all assignments (generic, no filter)
+router.get('/', assignmentController.getAllAssignments);
+
 // POST routes
 router.post('/', authMiddleware, assignmentController.createAssignment);
 router.post('/bulk', authMiddleware, assignmentController.bulkAssignAutos);

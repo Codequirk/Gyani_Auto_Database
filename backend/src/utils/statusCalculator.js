@@ -17,7 +17,7 @@ const today = (includeTime = false) => {
 /**
  * Calculate auto status based on its assignments
  * @param {Array} assignments - Array of assignment objects with start_date, end_date, status
- * @returns {string} - 'ACTIVE', 'PREBOOKED', 'IDLE', or 'COMPLETED'
+ * @returns {string} - 'ACTIVE' or 'IDLE' (only valid auto availability states)
  */
 const calculateAutoStatus = (assignments = []) => {
   const todayDate = today();
@@ -30,7 +30,7 @@ const calculateAutoStatus = (assignments = []) => {
     return 'IDLE';
   }
 
-  // Check for ACTIVE assignment (start_date <= today <= end_date)
+  // Check for any assignment that overlaps with today (start_date <= today <= end_date)
   for (const assignment of relevantAssignments) {
     const startDate = new Date(assignment.start_date);
     startDate.setHours(0, 0, 0, 0);
@@ -38,23 +38,24 @@ const calculateAutoStatus = (assignments = []) => {
     const endDate = new Date(assignment.end_date);
     endDate.setHours(0, 0, 0, 0);
 
-    // Assignment is active if today falls within the range
+    // If there's an assignment active today, auto is ACTIVE
     if (startDate <= todayDate && todayDate <= endDate) {
       return 'ACTIVE';
     }
   }
 
-  // Check for PREBOOKED assignment (start_date > today)
+  // If we reach here, there are relevant assignments but none are active today
+  // Check if any are in the future (PREBOOKED)
   for (const assignment of relevantAssignments) {
     const startDate = new Date(assignment.start_date);
     startDate.setHours(0, 0, 0, 0);
-
+    
     if (startDate > todayDate) {
       return 'PREBOOKED';
     }
   }
 
-  // If all assignments have end_date in the past, status is IDLE (completed)
+  // All assignments are in the past, auto is IDLE
   return 'IDLE';
 };
 

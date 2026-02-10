@@ -1,17 +1,19 @@
 /**
- * Scheduled cleanup service for old completed assignments
- * Deletes assignments that are 30+ days past their end_date
+ * Scheduled cleanup service for old completed assignments and expired advertisement images
+ * - Deletes assignments that are 30+ days past their end_date
+ * - Deletes advertisement images that have expired (7 days old)
  */
 
 const Assignment = require('../models/Assignment');
 const Auto = require('../models/Auto');
+const advertisementImageController = require('../controllers/advertisementImageController');
 const cron = require('node-cron');
 
 let cleanupJob = null;
 
 /**
  * Start the cleanup scheduler
- * Runs at 2:00 AM every day
+ * Runs every hour to clean up expired images and old assignments
  */
 const startCleanupScheduler = () => {
   if (cleanupJob) {
@@ -19,17 +21,18 @@ const startCleanupScheduler = () => {
     return;
   }
 
-  // Schedule task to run every day at 2:00 AM
-  cleanupJob = cron.schedule('0 2 * * *', async () => {
+  // Schedule task to run every hour
+  cleanupJob = cron.schedule('0 * * * *', async () => {
     console.log('[CLEANUP] Scheduled cleanup started...');
     try {
+      await cleanupExpiredAdvertisementImages();
       await cleanupOldCompletedAssignments();
     } catch (error) {
       console.error('[CLEANUP] Error during scheduled cleanup:', error.message);
     }
   });
 
-  console.log('[CLEANUP] Scheduler started - will run daily at 2:00 AM');
+  console.log('[CLEANUP] Scheduler started - will run every hour');
 };
 
 /**
@@ -40,6 +43,17 @@ const stopCleanupScheduler = () => {
     cleanupJob.stop();
     cleanupJob = null;
     console.log('[CLEANUP] Scheduler stopped');
+  }
+};
+
+/**
+ * Cleanup expired advertisement images
+ */
+const cleanupExpiredAdvertisementImages = async () => {
+  try {
+    await advertisementImageController.cleanupExpiredImages();
+  } catch (error) {
+    console.error('[CLEANUP] Error cleaning up advertisement images:', error.message);
   }
 };
 

@@ -1,6 +1,7 @@
 console.log('[STARTUP] Beginning backend startup...');
 
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
@@ -15,6 +16,8 @@ const companyRoutes = require('./routes/companyRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const advertisementRoutes = require('./routes/advertisementRoutes');
+const autoMonthlyPaymentRoutes = require('./routes/autoMonthlyPaymentRoutes');
 const companyAuthRoutes = require('./routes/companyAuthRoutes');
 const companyPortalRoutes = require('./routes/companyPortalRoutes');
 const companyTicketRoutes = require('./routes/companyTicketRoutes');
@@ -27,6 +30,18 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Serve company portal frontend (must be BEFORE API routes so /api routes take precedence)
+const companyPortalPath = path.join(__dirname, '../../company-portal/dist');
+console.log(`[STARTUP] Company portal path: ${companyPortalPath}`);
+app.use('/company-portal', express.static(companyPortalPath));
+
+// Serve company portal at root /company path with SPA routing
+app.use('/company', express.static(companyPortalPath));
+app.get('/company/*', (req, res) => {
+  res.sendFile(path.join(companyPortalPath, 'index.html'));
+});
 
 // Admin Routes
 app.use('/api/auth', authRoutes);
@@ -37,6 +52,8 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/advertisements', advertisementRoutes);
+app.use('/api/auto-monthly-payments', autoMonthlyPaymentRoutes);
 
 // Company Routes
 app.use('/api/company-auth', companyAuthRoutes);
@@ -48,13 +65,26 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+// 404 handler for API routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API route not found' });
 });
 
 // Error handling middleware
 app.use(errorHandler);
+
+// SPA routing fallback - MUST be at the end after all other routes
+// Serves index.html for any non-API, non-static file routes
+app.get('*', (req, res) => {
+  const indexPath = path.join(companyPortalPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({ 
+      error: 'Company portal not found. Run: npm run build in company-portal directory' 
+    });
+  }
+});
 
 // Start cleanup scheduler
 console.log('[DEBUG] About to start cleanup scheduler...');

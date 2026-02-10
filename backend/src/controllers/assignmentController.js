@@ -1,8 +1,20 @@
+console.log("🔥 LOADED assignmentController FROM:", __filename);
+
 const Assignment = require('../models/Assignment');
 const Auto = require('../models/Auto');
-const { computeDaysRemaining, computeDaysRemainingByStatus, calculateTotalDays, formatDateForDb, getDateNDaysFromNow } = require('../utils/dateUtils');
+const AutoAdvertisement = require('../models/AutoAdvertisement');
+const { computeDaysRemaining, calculateTotalDays, formatDateForDb, getDateNDaysFromNow } = require('../utils/dateUtils');
 const { validateAssignmentDates } = require('../utils/assignmentValidation');
-const { calculateAutoStatus } = require('../utils/statusCalculator');
+
+/**
+ * Defensive fallback for computeDaysRemainingByStatus
+ * Maps to computeDaysRemaining for compatibility
+ */
+function computeDaysRemainingByStatus(input) {
+  if (!input) return null;
+  if (input.end_date) return computeDaysRemaining(input.end_date);
+  return computeDaysRemaining(input);
+}
 
 /**
  * Helper function to determine correct assignment status based on dates
@@ -32,6 +44,7 @@ function getCorrectAssignmentStatus(startDate, endDate) {
 /**
  * Helper function to update assignment status based on current date
  * Automatically transitions assignments through their lifecycle
+ * When transitioning to COMPLETED, auto-deletes associated advertisements
  */
 async function updateAssignmentStatusIfNeeded(assignmentId) {
   try {
@@ -43,6 +56,17 @@ async function updateAssignmentStatusIfNeeded(assignmentId) {
     // Only update if status has changed
     if (assignment.status !== correctStatus) {
       await Assignment.updateStatus(assignmentId, correctStatus);
+      
+      // If transitioning to COMPLETED, delete associated advertisements
+      if (correctStatus === 'COMPLETED') {
+        try {
+          await AutoAdvertisement.deleteByAutoAndCompany(assignment.auto_id, assignment.company_id);
+          console.log(`✓ Deleted advertisements for auto ${assignment.auto_id} (company ${assignment.company_id}) on assignment completion`);
+        } catch (adError) {
+          console.error(`Error deleting advertisements for assignment ${assignmentId}:`, adError);
+          // Don't throw - continue even if advertisement deletion fails
+        }
+      }
     }
   } catch (error) {
     console.error(`Error updating assignment status for ${assignmentId}:`, error);
@@ -53,36 +77,6 @@ async function updateAssignmentStatusIfNeeded(assignmentId) {
  * Helper function to check if an auto has expired assignments and update auto status if needed
  * Sets auto to IDLE if all assignments are COMPLETED
  */
-async function updateAutoStatusIfExpired(autoId) {
-  try {
-    const assignments = await Assignment.findByAutoId(autoId);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Update status for all assignments based on dates
-    for (const assignment of assignments) {
-      const correctStatus = getCorrectAssignmentStatus(assignment.start_date, assignment.end_date);
-      if (assignment.status !== correctStatus) {
-        await Assignment.updateStatus(assignment.id, correctStatus);
-      }
-    }
-    
-    // Refresh assignments after status updates
-    const refreshedAssignments = await Assignment.findByAutoId(autoId);
-    
-    // Use the new calculateAutoStatus utility
-    const correctAutoStatus = calculateAutoStatus(refreshedAssignments);
-    
-    // Update auto status if it changed
-    const auto = await Auto.findById(autoId);
-    if (auto.status !== correctAutoStatus) {
-      await Auto.updateStatus(autoId, correctAutoStatus);
-    }
-  } catch (error) {
-    console.error(`Error updating auto status for ${autoId}:`, error);
-  }
-}
-
 exports.createAssignment = async (req, res, next) => {
   try {
     const { auto_id, company_id, days, start_date, is_prebooked } = req.body;
@@ -116,7 +110,7 @@ exports.createAssignment = async (req, res, next) => {
     checkStartDate.setHours(0, 0, 0, 0);
     const assignmentStatus = checkStartDate <= today ? 'ACTIVE' : 'PREBOOKED';
 
-    // Get company name for enrichment
+    // Validate company exists
     const Company = require('../models/Company');
     const company = await Company.findById(company_id);
     if (!company) {
@@ -132,12 +126,8 @@ exports.createAssignment = async (req, res, next) => {
       status: assignmentStatus,
     });
 
-    // Update auto status based on assignment status
-    if (assignmentStatus === 'PREBOOKED') {
-      await Auto.updateStatus(auto_id, 'PREBOOKED');
-    } else {
-      await Auto.updateStatus(auto_id, 'ACTIVE');
-    }
+    // Update auto status based on assignment dates
+    await Auto.recalculateAndUpdateStatus(auto_id);
 
     res.status(201).json(assignment);
   } catch (error) {
@@ -147,11 +137,9 @@ exports.createAssignment = async (req, res, next) => {
 
 exports.bulkAssignAutos = async (req, res, next) => {
   try {
-    console.log('[BULK_ASSIGN] Request body:', JSON.stringify(req.body, null, 2));
-    const { auto_ids, company_id, days, start_date, cost_per_day, is_prebooked } = req.body;
+    const { auto_ids, company_id, days, start_date, is_prebooked, cost_per_day } = req.body;
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days) {
-      console.log('[BULK_ASSIGN] Validation failed:', { auto_ids, company_id, days });
       return res.status(400).json({ error: 'Missing or invalid required fields' });
     }
 
@@ -164,14 +152,12 @@ exports.bulkAssignAutos = async (req, res, next) => {
     // Get company name
     const Company = require('../models/Company');
     const company = await Company.findById(company_id);
-    console.log('[BULK_ASSIGN] Company found:', company?.id, company?.name);
     if (!company) {
       return res.status(404).json({ error: 'Company not found' });
     }
 
     const startDate = start_date ? new Date(start_date) : new Date();
     const endDate = getDateNDaysFromNow(days, startDate);
-    console.log('[BULK_ASSIGN] Dates:', { start_date, startDate: startDate.toISOString(), endDate: endDate.toISOString(), totalDays: calculateTotalDays(startDate, endDate) });
     const totalDays = calculateTotalDays(startDate, endDate);
 
     // Validate dates for each auto
@@ -214,56 +200,53 @@ exports.bulkAssignAutos = async (req, res, next) => {
     }));
 
     const assignments = await Assignment.createBulk(assignmentData);
-    console.log('[BULK_ASSIGN] Assignments created successfully:', assignments.length);
 
     // Create payment records if cost_per_day is provided
-    const Payment = require('../models/Payment');
     if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
-      console.log('[BULK_ASSIGN] Creating payment records with cost_per_day:', cost_per_day);
+      const Payment = require('../models/Payment');
+      const Area = require('../models/Area');
       
-      for (const assignment of assignments) {
-        const auto = await Auto.findById(assignment.auto_id);
-        if (auto) {
-          try {
+      for (let i = 0; i < validAutoIds.length; i++) {
+        const autoId = validAutoIds[i];
+        const assignment = assignments[i];
+        
+        try {
+          const auto = await Auto.findById(autoId);
+          if (auto) {
+            // Get area name if not present
+            let areaName = auto.area_name || '';
+            if (!areaName && auto.area_id) {
+              const area = await Area.findById(auto.area_id);
+              if (area) areaName = area.name;
+            }
+
             await Payment.create({
               ticket_id: assignment.id,
-              auto_id: assignment.auto_id,
+              auto_id: autoId,
               company_id: company_id,
               auto_no: auto.auto_no,
               owner_name: auto.owner_name || '',
               area_id: auto.area_id || null,
-              area_name: auto.area_name || '',
+              area_name: areaName,
               cost_per_day: parseFloat(cost_per_day),
               total_days: totalDays,
               total_cost: parseFloat(cost_per_day) * totalDays,
+              assigned_time: new Date(),
               payment_status: 'PENDING'
             });
-          } catch (paymentError) {
-            console.error('[BULK_ASSIGN] Warning: Payment creation failed for auto', assignment.auto_id, ':', paymentError.message);
-            // Don't throw - continue with other payments
           }
+        } catch (paymentError) {
+          console.error(`[BULK_ASSIGN] Warning: Payment creation failed for auto ${autoId}:`, paymentError.message);
+          // Don't throw - continue with other payments
         }
       }
-      console.log('[BULK_ASSIGN] Payment records created successfully');
     }
 
-    // Update auto statuses based on assignment status
-    try {
-      if (assignmentStatus === 'PREBOOKED') {
-        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PREBOOKED')));
-      } else {
-        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ACTIVE')));
-      }
-      console.log('[BULK_ASSIGN] Auto statuses updated successfully');
-    } catch (statusError) {
-      console.error('[BULK_ASSIGN] Warning: Auto status update failed (non-critical):', statusError.message);
-      // Don't throw - this is non-critical
-    }
+    // Update auto statuses based on their assignments (recalculate)
+    await Promise.all(validAutoIds.map(id => Auto.recalculateAndUpdateStatus(id)));
 
     res.status(201).json(assignments);
   } catch (error) {
-    console.error('[BULK_ASSIGN] Error:', error);
-    console.error('[BULK_ASSIGN] Error stack:', error.stack);
     next(error);
   }
 };
@@ -299,8 +282,8 @@ exports.updateAssignment = async (req, res, next) => {
 
     const updated = await Assignment.update(id, updateData);
 
-    // Update auto status based on all its assignments (recalculate all statuses)
-    await updateAutoStatusIfExpired(autoId);
+    // Recalculate auto status based on all its assignments
+    await Auto.recalculateAndUpdateStatus(autoId);
 
     // Enrich the response with company_name and days_remaining
     const Company = require('../models/Company');
@@ -320,14 +303,6 @@ exports.getActiveAssignments = async (req, res, next) => {
   try {
     const assignments = await Assignment.findActive();
     
-    // Check each assignment for expiration and update auto status if needed
-    for (const assignment of assignments) {
-      const daysRemaining = computeDaysRemaining(assignment.end_date);
-      if (daysRemaining === 0) {
-        await updateAutoStatusIfExpired(assignment.auto_id);
-      }
-    }
-    
     const enriched = assignments.map(a => ({
       ...a,
       days_remaining: computeDaysRemaining(a.end_date),
@@ -338,31 +313,38 @@ exports.getActiveAssignments = async (req, res, next) => {
   }
 };
 
-exports.getAssignmentsByCompany = async (req, res, next) => {
+exports.getAllAssignments = async (req, res, next) => {
   try {
-    const { companyId } = req.params;
-
-    if (!companyId) {
-      return res.status(400).json({ error: 'Company ID is required' });
-    }
-
-    // Get all assignments for this company (all statuses: ACTIVE, PREBOOKED, COMPLETED, IDLE)
-    const assignments = await Assignment.findByCompanyId(companyId);
-    
-    // Check each assignment for expiration and update auto status if needed
-    const uniqueAutos = new Set(assignments.map(a => a.auto_id));
-    for (const autoId of uniqueAutos) {
-      await updateAutoStatusIfExpired(autoId);
-    }
+    const assignments = await Assignment.findAll();
     
     const enriched = assignments.map(a => ({
       ...a,
-      days_remaining: computeDaysRemainingByStatus(a.start_date, a.end_date, a.status),
+      days_remaining: computeDaysRemaining(a.end_date),
     }));
     
-    res.json(enriched);
+    res.json({
+      list: enriched,
+      count: enriched.length,
+    });
   } catch (error) {
     next(error);
+  }
+};
+
+exports.getAssignmentsByCompany = async (req, res, next) => {
+  console.log('[NEW_FIXED_VERSION_FEB4] getAssignmentsByCompany called with companyId:', req.params.companyId);
+  const { companyId } = req.params;
+  if (!companyId) return res.status(400).json({ error: 'Company ID required' });
+  try {
+    const assignments = await Assignment.findByCompanyId(companyId);
+    if (!assignments || !assignments.length) return res.json([]);
+    const list = assignments.map(a => {
+      const daysRemaining = computeDaysRemaining(a.end_date);
+      return { ...a, days_remaining: daysRemaining };
+    });
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch assignments', details: e.message });
   }
 };
 
@@ -375,14 +357,6 @@ exports.getPriorityAssignments = async (req, res, next) => {
       const assignments = await Assignment.findByAutoId(auto.id);
       const activeAssignment = assignments.find(a => a.status === 'ACTIVE');
       
-      // Check if assignment has expired
-      if (activeAssignment) {
-        const daysRemaining = computeDaysRemaining(activeAssignment.end_date);
-        if (daysRemaining === 0) {
-          await updateAutoStatusIfExpired(auto.id);
-        }
-      }
-      
       return {
         ...auto,
         days_remaining: activeAssignment ? computeDaysRemaining(activeAssignment.end_date) : null,
@@ -391,50 +365,6 @@ exports.getPriorityAssignments = async (req, res, next) => {
       };
     }));
 
-    res.json(enriched);
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.getCompletedAssignments = async (req, res, next) => {
-  try {
-    const { autoId } = req.query;
-    
-    // Get completed assignments
-    const assignments = await Assignment.findCompleted(autoId || null);
-    
-    // Enrich with auto and company data
-    const Company = require('../models/Company');
-    const enriched = await Promise.all(assignments.map(async (assignment) => {
-      const auto = await Auto.findById(assignment.auto_id);
-      const company = await Company.findById(assignment.company_id);
-      
-      // Calculate days since completion
-      const endDate = new Date(assignment.end_date);
-      endDate.setHours(0, 0, 0, 0);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const daysSinceCompletion = Math.floor((today - endDate) / (1000 * 60 * 60 * 24));
-      
-      // Calculate days until deletion (30 days after end_date)
-      const daysUntilDeletion = 30 - daysSinceCompletion;
-      
-      return {
-        id: assignment.id,
-        auto_id: assignment.auto_id,
-        auto_no: auto?.auto_no,
-        company_id: assignment.company_id,
-        company_name: company?.name || 'Unknown',
-        start_date: assignment.start_date,
-        end_date: assignment.end_date,
-        status: 'COMPLETED',
-        days_since_completion: daysSinceCompletion,
-        days_until_deletion: daysUntilDeletion,
-        created_at: assignment.created_at,
-      };
-    }));
-    
     res.json(enriched);
   } catch (error) {
     next(error);
@@ -508,52 +438,11 @@ exports.deleteAssignment = async (req, res, next) => {
   }
 };
 
-exports.deleteOldCompletedAssignments = async (req, res, next) => {
-  try {
-    console.log('[CLEANUP] Starting cleanup of old completed assignments...');
-    
-    // Find assignments eligible for deletion (30+ days after end_date)
-    const toDelete = await Assignment.findEligibleForDeletion();
-    console.log(`[CLEANUP] Found ${toDelete.length} assignments eligible for deletion`);
-    
-    if (toDelete.length === 0) {
-      return res.json({
-        message: 'No assignments to delete',
-        deletedCount: 0
-      });
-    }
-    
-    // Group by auto_id to update statuses later
-    const affectedAutoIds = new Set(toDelete.map(a => a.auto_id));
-    
-    // Delete the assignments
-    const deletedCount = await Assignment.deleteOldCompleted();
-    console.log(`[CLEANUP] Deleted ${deletedCount} old completed assignments`);
-    
-    // Update auto statuses for affected autos
-    for (const autoId of affectedAutoIds) {
-      await updateAutoStatusIfExpired(autoId);
-    }
-    
-    console.log(`[CLEANUP] Updated status for ${affectedAutoIds.size} autos`);
-    
-    res.json({
-      message: `Successfully deleted ${deletedCount} old completed assignments (30+ days after completion)`,
-      deletedCount,
-      affectedAutos: affectedAutoIds.size
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 exports.bulkUpdateAssignments = async (req, res, next) => {
   try {
-    console.log('[BULK_UPDATE] Request body:', JSON.stringify(req.body, null, 2));
     const { auto_ids, company_id, days, start_date } = req.body;
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days || !start_date) {
-      console.log('[BULK_UPDATE] Validation failed:', { auto_ids, company_id, days, start_date });
       return res.status(400).json({ error: 'Missing or invalid required fields' });
     }
 
@@ -599,20 +488,9 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
     }));
 
     const assignments = await Assignment.createBulk(assignmentData);
-    console.log('[BULK_UPDATE] Assignments created successfully:', assignments.length);
 
-    // Update auto statuses
-    try {
-      if (assignmentStatus === 'PREBOOKED') {
-        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'PREBOOKED')));
-      } else {
-        await Promise.all(validAutoIds.map(id => Auto.updateStatus(id, 'ACTIVE')));
-      }
-      console.log('[BULK_UPDATE] Auto statuses updated successfully');
-    } catch (statusError) {
-      console.error('[BULK_UPDATE] Warning: Auto status update failed (non-critical):', statusError.message);
-      // Don't throw - assignments were already created
-    }
+    // Update auto statuses - recalculate based on current assignments
+    await Promise.all(validAutoIds.map(id => Auto.recalculateAndUpdateStatus(id)));
 
     res.status(200).json({
       message: `${assignments.length} assignments updated successfully`,
@@ -620,9 +498,263 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
       deletedCount: Object.values(deletedCount).reduce((a, b) => a + b, 0)
     });
   } catch (error) {
-    console.error('[BULK_UPDATE] Error:', error);
-    console.error('[BULK_UPDATE] Error stack:', error.stack);
     next(error);
   }
 };
+
+/**
+ * Get completed assignments (for history/archive view)
+ * These are assignments where end_date <= today
+ */
+exports.getCompletedAssignments = async (req, res, next) => {
+  try {
+    // Get all completed assignments (for history/archive)
+    const assignments = await Assignment.findCompleted();
+    
+    // Enrich with company and auto info
+    const enriched = await Promise.all(
+      assignments.map(async (a) => {
+        const Company = require('../models/Company');
+        const Auto = require('../models/Auto');
+        
+        if (a.company_id && !a.company_name) {
+          const company = await Company.findById(a.company_id);
+          a.company_name = company?.name || 'Unknown';
+        }
+        
+        if (a.auto_id && !a.auto_no) {
+          const auto = await Auto.findById(a.auto_id);
+          a.auto_no = auto?.auto_no || 'Unknown';
+        }
+        
+        return {
+          ...a,
+          days_remaining: 0,  // Completed assignments have 0 days remaining
+        };
+      })
+    );
+    
+    res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.deleteOldCompletedAssignments = async (req, res, next) => {
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const result = await Assignment.deleteWhere({
+      status: 'COMPLETED',
+      deleted_at: null
+    });
+    
+    res.json({
+      message: `Deleted ${result.deletedCount || 0} old completed assignments`,
+      deletedCount: result.deletedCount || 0
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.bulkAssignAutos = async (req, res, next) => {
+  try {
+    // Accept either 'days' or 'days_required' from frontend
+    let { auto_ids, company_id, start_date, end_date, days_required, days, is_prebooked, cost_per_day } = req.body;
+
+    console.log('[BULK] Raw request body:', JSON.stringify(req.body));
+
+    // Use 'days' if 'days_required' is not provided
+    if (!days_required && days) {
+      days_required = days;
+    }
+
+    // Normalize inputs - be very flexible with date formats
+    if (typeof start_date === 'string') start_date = start_date.trim();
+    if (typeof end_date === 'string') end_date = end_date.trim();
+    
+    // Convert DD-MM-YYYY to YYYY-MM-DD if needed
+    if (start_date && start_date.match(/^\d{2}-\d{2}-\d{4}$/)) {
+      const [day, month, year] = start_date.split('-');
+      start_date = `${year}-${month}-${day}`;
+    }
+    if (end_date && end_date.match(/^\d{2}-\d{2}-\d{4}$/)) {
+      const [day, month, year] = end_date.split('-');
+      end_date = `${year}-${month}-${day}`;
+    }
+    
+    // Parse days_required to number
+    let parsedDaysRequired = null;
+    if (days_required !== undefined && days_required !== null && days_required !== '') {
+      parsedDaysRequired = Number(days_required);
+      if (!isNaN(parsedDaysRequired) && parsedDaysRequired > 0) {
+        days_required = parsedDaysRequired;
+      } else {
+        days_required = null;
+      }
+    } else {
+      days_required = null;
+    }
+
+    console.log('[BULK] After normalization:', { auto_ids, company_id, start_date, end_date, days_required, cost_per_day });
+
+    // Validate required fields
+    if (!start_date || start_date === '') {
+      return res.status(400).json({ error: 'start_date is required' });
+    }
+
+    if (!company_id || company_id.toString().trim() === '') {
+      return res.status(400).json({ error: 'company_id is required' });
+    }
+
+    if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0) {
+      return res.status(400).json({ error: 'auto_ids must be a non-empty array' });
+    }
+
+    // Must have either end_date OR days_required - check properly
+    const hasValidEndDate = end_date && end_date.trim && end_date.trim() !== '';
+    const hasValidDaysRequired = days_required !== null && days_required !== undefined && days_required > 0;
+
+    console.log('[BULK] Validation check:', { hasValidEndDate, hasValidDaysRequired, end_date, days_required });
+
+    if (!hasValidEndDate && !hasValidDaysRequired) {
+      return res.status(400).json({ 
+        error: 'Provide either end_date (like 2026-02-07) or days (like 7)',
+        debug: { end_date, days_required }
+      });
+    }
+
+    // Determine final end_date
+    let finalEndDate;
+    if (hasValidEndDate) {
+      finalEndDate = end_date;
+    } else if (hasValidDaysRequired) {
+      finalEndDate = getDateNDaysFromNow(days_required - 1, start_date);
+    }
+
+    // Calculate total days
+    const totalDays = calculateTotalDays(start_date, finalEndDate);
+    const assignmentStatus = getCorrectAssignmentStatus(start_date, finalEndDate);
+
+    console.log('[BULK] Creating assignments:', { totalDays, assignmentStatus, auto_ids_count: auto_ids.length });
+
+    // Create assignments for all autos
+    const assignments = [];
+    const errors = [];
+
+    for (const autoId of auto_ids) {
+      try {
+        const assignment = await Assignment.create({
+          auto_id: autoId,
+          company_id: company_id,
+          start_date: start_date,
+          end_date: finalEndDate,
+          days: totalDays,
+          status: assignmentStatus,
+        });
+        assignments.push(assignment);
+        console.log(`[BULK] Created assignment for auto ${autoId}:`, assignment.id);
+
+        // Update auto status
+        try {
+          await Auto.recalculateAndUpdateStatus(autoId);
+        } catch (statusError) {
+          console.warn(`[BULK] Warning: Could not recalculate status for auto ${autoId}:`, statusError.message);
+        }
+
+        // Create payment record if cost_per_day provided
+        if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
+          try {
+            const Payment = require('../models/Payment');
+            const auto = await Auto.findById(autoId);
+            await Payment.create({
+              ticket_id: assignment.id,
+              auto_id: autoId,
+              company_id: company_id,
+              auto_no: auto?.auto_no || '',
+              owner_name: auto?.owner_name || '',
+              area_id: auto?.area_id || null,
+              area_name: auto?.area_name || '',
+              cost_per_day: parseFloat(cost_per_day),
+              total_days: totalDays,
+              total_cost: parseFloat(cost_per_day) * totalDays,
+              payment_status: 'PENDING'
+            });
+          } catch (paymentError) {
+            console.warn(`[BULK] Warning: Could not create payment for auto ${autoId}:`, paymentError.message);
+          }
+        }
+      } catch (autoError) {
+        const errorMsg = `Error creating assignment for auto ${autoId}: ${autoError.message}`;
+        console.error(`[BULK]`, errorMsg);
+        errors.push({ autoId, error: errorMsg });
+      }
+    }
+
+    console.log(`[BULK] Complete: Created ${assignments.length} assignments, ${errors.length} errors`);
+
+    res.status(201).json({
+      message: `Created ${assignments.length}/${auto_ids.length} assignments`,
+      assignments: assignments,
+      count: assignments.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error) {
+    console.error('[BULK] Fatal error:', error);
+    next(error);
+  }
+};
+
+exports.bulkUpdateAssignments = async (req, res, next) => {
+  try {
+    const { assignment_ids, status } = req.body;
+
+    // Validate input
+    if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
+      return res.status(400).json({ error: 'assignment_ids must be a non-empty array' });
+    }
+    if (!status || !['ACTIVE', 'PREBOOKED', 'COMPLETED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ error: 'Valid status is required (ACTIVE, PREBOOKED, COMPLETED, REJECTED)' });
+    }
+
+    // Update all assignments
+    const updated = [];
+    const autos = new Set();
+
+    for (const assignmentId of assignment_ids) {
+      try {
+        const assignment = await Assignment.updateStatus(assignmentId, status);
+        if (assignment) {
+          updated.push(assignment);
+          if (assignment.auto_id) {
+            autos.add(assignment.auto_id);
+          }
+        }
+      } catch (assignmentError) {
+        console.error(`Error updating assignment ${assignmentId}:`, assignmentError.message);
+      }
+    }
+
+    // Recalculate auto statuses
+    for (const autoId of autos) {
+      try {
+        await Auto.recalculateAndUpdateStatus(autoId);
+      } catch (autoError) {
+        console.error(`Error recalculating auto status for ${autoId}:`, autoError.message);
+      }
+    }
+
+    res.json({
+      message: `Updated ${updated.length} assignments`,
+      assignments: updated,
+      count: updated.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 

@@ -2,6 +2,7 @@ const Auto = require('../models/Auto');
 const Assignment = require('../models/Assignment');
 const { computeDaysRemaining, formatDateForDb } = require('../utils/dateUtils');
 const { mergeConsecutiveAssignments, isConsecutive } = require('../utils/assignmentMerge');
+const { deleteOldCompletedAssignments } = require('../utils/assignmentCleanup');
 
 /**
  * Helper function to determine the correct status of an auto based on its assignments
@@ -83,6 +84,9 @@ const areConsecutive = (endDate, startDate) => {
 
 exports.listAutos = async (req, res, next) => {
   try {
+    // Clean up old completed assignments (30+ days old)
+    await deleteOldCompletedAssignments();
+
     const { search, area_id, status } = req.query;
     const filters = {};
 
@@ -125,6 +129,9 @@ exports.listAutos = async (req, res, next) => {
         })
       );
       
+      // Fetch fresh auto data to get updated status
+      const freshAuto = await Auto.findById(auto.id);
+      
       // Filter only active and prebooked assignments, sorted by start_date
       const activePreBookedAssignments = enrichedAssignments
         .filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED')
@@ -134,7 +141,7 @@ exports.listAutos = async (req, res, next) => {
         // No active/prebooked assignments - determine status from all assignments
         const displayStatus = determineAutoStatus(enrichedAssignments);
         expandedAutos.push({
-          ...auto,
+          ...freshAuto,  // Use fresh auto with updated status
           days_remaining: null,
           current_company: null,
           display_status: displayStatus,
@@ -175,7 +182,7 @@ exports.listAutos = async (req, res, next) => {
         const displayStatus = determineAutoStatus(enrichedAssignments);
         
         expandedAutos.push({
-          ...auto,
+          ...freshAuto,  // Use fresh auto with updated status
           days_remaining: computeDaysRemaining(mergedEndDate),
           current_company: mostRecentAssignment.company_name,
           display_status: displayStatus,
@@ -230,7 +237,10 @@ exports.getAuto = async (req, res, next) => {
       return res.status(404).json({ error: 'Auto not found' });
     }
 
-    // Enrich assignments with days remaining and calculate days if needed
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Enrich assignments with days remaining, calculate days if needed, and recalculate status
     const enrichedAssignments = auto.assignments.map(a => {
       // Calculate days from date range if not set
       let days = a.days || 0;
@@ -242,8 +252,28 @@ exports.getAuto = async (req, res, next) => {
         days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
       }
       
+      // RECALCULATE STATUS: based on today's date
+      // ACTIVE: if start_date <= today <= end_date
+      // PREBOOKED: if start_date > today
+      // COMPLETED: if end_date < today
+      let recalculatedStatus = a.status;
+      
+      const assignStart = new Date(a.start_date);
+      const assignEnd = new Date(a.end_date);
+      assignStart.setHours(0, 0, 0, 0);
+      assignEnd.setHours(0, 0, 0, 0);
+
+      if (assignEnd < today) {
+        recalculatedStatus = 'COMPLETED';
+      } else if (assignStart <= today && today <= assignEnd) {
+        recalculatedStatus = 'ACTIVE';
+      } else if (assignStart > today) {
+        recalculatedStatus = 'PREBOOKED';
+      }
+      
       return {
         ...a,
+        status: recalculatedStatus, // Use recalculated status
         days: days,
         days_remaining: computeDaysRemaining(a.end_date),
       };

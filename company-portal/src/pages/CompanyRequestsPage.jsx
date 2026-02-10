@@ -14,14 +14,14 @@ const CompanyRequestsPage = () => {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
-  const [showAutoAssignmentModal, setShowAutoAssignmentModal] = useState(false);
+  const [showAutoSelectionModal, setShowAutoSelectionModal] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [processingId, setProcessingId] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState('PENDING');
   const [availableAutos, setAvailableAutos] = useState([]);
-  const [selectedAutos, setSelectedAutos] = useState(new Set());
+  const [selectedAutosSet, setSelectedAutosSet] = useState(new Set());
   const [loadingAutos, setLoadingAutos] = useState(false);
 
   useEffect(() => {
@@ -78,94 +78,92 @@ const CompanyRequestsPage = () => {
 
   const handleApprove = async () => {
     if (!selectedRequest) return;
-    
-    // Load available autos and get suggestions
+
     setLoadingAutos(true);
+    setSelectedAutosSet(new Set());
     try {
-      // Get all autos in the area
-      let autosUrl = '/autos';
-      if (selectedRequest.area_id) {
-        autosUrl = `/autos?area_id=${selectedRequest.area_id}`;
-      }
+      // Fetch available autos from backend
+      const response = await api.get(`/company-tickets/admin/${selectedRequest.id}/available-autos`);
       
-      const autosResponse = await api.get(autosUrl);
-      setAvailableAutos(autosResponse.data || []);
+      // Store exactly as received - NO mutations
+      const autos = response.data.available_autos || [];
+      setAvailableAutos(autos);
       
-      // Get intelligent suggestions from backend
-      const suggestionResponse = await api.get(`/company-tickets/admin/${selectedRequest.id}/suggest-autos`);
-      const suggestedAutoIds = suggestionResponse.data.suggested_auto_ids || [];
+      // Log for verification
+      console.log('[FRONTEND] Available autos received from backend:');
+      autos.forEach((auto, idx) => {
+        console.log(`  [${idx}] ${auto.auto_no} - ${auto.display_status}`);
+      });
       
-      // Pre-select the suggested autos
-      const newSelected = new Set(suggestedAutoIds);
-      setSelectedAutos(newSelected);
-      
-      // Store suggestion data for display
-      selectedRequest._suggestionData = suggestionResponse.data;
-      
-      // Show assignment modal instead of approving directly
-      setShowAutoAssignmentModal(true);
+      // Show modal
+      setShowAutoSelectionModal(true);
     } catch (err) {
-      console.error('Error loading autos or suggestions:', err);
-      alert(err.response?.data?.error || 'Failed to load available autos');
-      setSelectedAutos(new Set());
+      console.error('[FRONTEND] Error fetching autos:', err);
+      alert(err.response?.data?.error || 'Failed to fetch available autos');
     } finally {
       setLoadingAutos(false);
     }
   };
 
-  const handleAssignAutos = async () => {
-    if (selectedAutos.size === 0) {
-      alert('Please select at least one auto');
-      return;
-    }
-
-    if (selectedAutos.size > selectedRequest.autos_required) {
-      alert(`You can only select ${selectedRequest.autos_required} autos`);
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      const autoIds = Array.from(selectedAutos);
-      console.log('[FRONTEND] Sending auto_ids:', autoIds);
-      console.log('[FRONTEND] Admin ID:', admin?.id);
-      console.log('[FRONTEND] Request ID:', selectedRequest.id);
-      
-      // Call backend to approve AND assign autos
-      const response = await api.patch(`/company-tickets/admin/${selectedRequest.id}/approve`, {
-        admin_id: admin?.id || 'system',
-        auto_ids: autoIds
-      });
-      
-      console.log('[FRONTEND] Assignment response:', response.data);
-      alert(`Request approved and ${selectedAutos.size} auto(s) assigned!`);
-      setShowAutoAssignmentModal(false);
-      setShowDetailsModal(false);
-      setSelectedRequest(null);
-      setSelectedAutos(new Set());
-      setAvailableAutos([]);
-      fetchRequests();
-    } catch (err) {
-      console.error('[FRONTEND] Assignment error:', err);
-      alert(err.response?.data?.error || 'Failed to approve and assign');
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  // ===== AUTO SELECTION HELPERS =====
+  // NOTE: Frontend receives a sorted array from backend.
+  // We ONLY select items, NEVER reorder or transform.
 
   const toggleAutoSelection = (autoId) => {
-    const newSelected = new Set(selectedAutos);
+    const newSelected = new Set(selectedAutosSet);
     if (newSelected.has(autoId)) {
       newSelected.delete(autoId);
     } else {
       if (newSelected.size < selectedRequest.autos_required) {
         newSelected.add(autoId);
       } else {
-        alert(`You can only select ${selectedRequest.autos_required} autos`);
+        alert(`You can only select ${selectedRequest.autos_required} auto(s)`);
         return;
       }
     }
-    setSelectedAutos(newSelected);
+    setSelectedAutosSet(newSelected);
+  };
+
+  const handleSubmitAutoSelection = async () => {
+    if (selectedAutosSet.size === 0) {
+      alert('Please select at least one auto');
+      return;
+    }
+
+    const autoIds = Array.from(selectedAutosSet);
+    setActionLoading(true);
+
+    try {
+      // Call approve endpoint with selected auto IDs
+      const response = await api.patch(`/company-tickets/admin/${selectedRequest.id}/approve`, {
+        admin_id: admin?.id || 'system',
+        auto_ids: autoIds,
+      });
+
+      alert(`Request approved and ${autoIds.length} auto(s) assigned!`);
+      
+      // Close all modals and reset
+      setShowAutoSelectionModal(false);
+      setShowDetailsModal(false);
+      setShowApprovalModal(false);
+      setSelectedRequest(null);
+      setSelectedAutosSet(new Set());
+      setAvailableAutos([]);
+      
+      // Refresh list
+      fetchRequests();
+    } catch (err) {
+      console.error('[FRONTEND] Approval error:', err);
+      alert(err.response?.data?.error || 'Failed to approve request');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCloseAutoSelectionModal = () => {
+    setShowAutoSelectionModal(false);
+    setSelectedAutosSet(new Set());
+    setAvailableAutos([]);
   };
 
   const handleReject = async () => {
@@ -443,14 +441,10 @@ const CompanyRequestsPage = () => {
         )}
       </Modal>
 
-      {/* Auto Assignment Modal */}
+      {/* Auto Selection Modal - Clean Implementation */}
       <Modal
-        isOpen={showAutoAssignmentModal}
-        onClose={() => {
-          setShowAutoAssignmentModal(false);
-          setSelectedAutos(new Set());
-          setAvailableAutos([]);
-        }}
+        isOpen={showAutoSelectionModal}
+        onClose={handleCloseAutoSelectionModal}
         title={`Select ${selectedRequest?.autos_required} Auto(s) to Assign`}
       >
         {selectedRequest && (
@@ -462,140 +456,96 @@ const CompanyRequestsPage = () => {
                 <p className="font-semibold">{selectedRequest.company?.name}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Autos to Select</p>
-                <p className="font-semibold">{selectedRequest.autos_required}</p>
+                <p className="text-sm text-gray-600">Required</p>
+                <p className="font-semibold text-blue-600">{selectedRequest.autos_required}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Preferred Area</p>
+                <p className="text-sm text-gray-600">Area</p>
                 <p className="font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Selected</p>
-                <p className="font-semibold text-blue-600">{selectedAutos.size} / {selectedRequest.autos_required}</p>
+                <p className="font-semibold text-green-600">{selectedAutosSet.size} / {selectedRequest.autos_required}</p>
               </div>
             </div>
 
-            {/* Selected Autos - At Top */}
-            {selectedAutos.size > 0 && (
+            {/* Loading State */}
+            {loadingAutos && (
+              <div className="p-4 text-center text-gray-600">
+                <LoadingSpinner /> Fetching available autos...
+              </div>
+            )}
+
+            {/* Auto List - RENDERED IN EXACT BACKEND ORDER */}
+            {!loadingAutos && availableAutos.length > 0 && (
               <div>
-                <p className="font-semibold text-gray-900 mb-3">✓ Selected Autos ({selectedAutos.size}):</p>
-                <div className="space-y-2 border border-green-200 bg-green-50 rounded p-3 mb-4">
-                  {availableAutos.map((auto) => {
-                    if (!selectedAutos.has(auto.id)) return null;
-                    
-                    const isSuggested = selectedRequest._suggestionData?.suggested_auto_ids?.includes(auto.id);
-                    const suggestedAutoData = selectedRequest._suggestionData?.suggested_autos?.find(a => a.id === auto.id);
-                    
-                    return (
-                      <div
-                        key={auto.id}
-                        onClick={() => toggleAutoSelection(auto.id)}
-                        className="p-3 rounded cursor-pointer border border-green-400 bg-white hover:bg-green-100 transition"
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={true}
-                            onChange={() => toggleAutoSelection(auto.id)}
-                            className="w-4 h-4 text-green-600 rounded"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-gray-900">{auto.auto_no}</p>
-                              {isSuggested && (
-                                <span className="inline-block px-2 py-1 text-xs font-bold rounded">
-                                  {suggestedAutoData?.type === 'IDLE' ? (
-                                    <span className="bg-red-200 text-red-800">IDLE</span>
-                                  ) : (
-                                    <span className="bg-blue-200 text-blue-800">ASSIGNED (FREE)</span>
-                                  )}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-gray-600">{auto.owner_name}</p>
-                            <p className="text-xs text-gray-500">Area: {auto.area_name || 'N/A'}</p>
+                <p className="font-semibold text-gray-900 mb-3">
+                  Available Autos ({availableAutos.length})
+                </p>
+                <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded p-3">
+                  {/* CRITICAL: Use map() without filter() or sort() to preserve backend order */}
+                  {availableAutos.map((auto) => (
+                    <div
+                      key={auto.id}
+                      onClick={() => toggleAutoSelection(auto.id)}
+                      className={`p-3 rounded cursor-pointer border transition ${
+                        selectedAutosSet.has(auto.id)
+                          ? 'border-green-400 bg-green-50'
+                          : 'border-gray-200 bg-white hover:border-blue-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedAutosSet.has(auto.id)}
+                          onChange={() => toggleAutoSelection(auto.id)}
+                          className="w-4 h-4 text-blue-600 rounded"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-900">{auto.auto_no}</p>
+                            {/* Display Status Badge - backend calculated */}
+                            <span
+                              className={`inline-block px-2 py-1 text-xs font-bold rounded ${
+                                auto.display_status === 'IDLE'
+                                  ? 'bg-red-200 text-red-800'
+                                  : auto.display_status === 'ACTIVE'
+                                  ? 'bg-blue-200 text-blue-800'
+                                  : 'bg-yellow-200 text-yellow-800'
+                              }`}
+                            >
+                              {auto.display_status}
+                            </span>
                           </div>
-                          <span className="text-green-600 font-bold text-lg">✓</span>
+                          <p className="text-sm text-gray-600">{auto.owner_name}</p>
+                          <p className="text-xs text-gray-500">Area: {auto.area_name || 'N/A'}</p>
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* All Other Available Autos */}
-            <div>
-              <p className="font-semibold text-gray-900 mb-3">Available Autos:</p>
-              
-              {availableAutos.length === 0 ? (
-                <p className="text-gray-600 text-sm">No autos available in this area</p>
-              ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded p-3">
-                  {availableAutos.map((auto) => {
-                    if (selectedAutos.has(auto.id)) return null; // Skip already selected
-                    
-                    const isSuggested = selectedRequest._suggestionData?.suggested_auto_ids?.includes(auto.id);
-                    const suggestedAutoData = selectedRequest._suggestionData?.suggested_autos?.find(a => a.id === auto.id);
-                    
-                    return (
-                      <div
-                        key={auto.id}
-                        onClick={() => toggleAutoSelection(auto.id)}
-                        className="p-3 rounded cursor-pointer border border-gray-200 hover:border-blue-300 transition bg-white"
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={false}
-                            onChange={() => toggleAutoSelection(auto.id)}
-                            className="w-4 h-4 text-blue-600 rounded"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-gray-900">{auto.auto_no}</p>
-                              {isSuggested && (
-                                <span className="inline-block px-2 py-1 text-xs font-bold rounded">
-                                  {suggestedAutoData?.type === 'IDLE' ? (
-                                    <span className="bg-red-200 text-red-800">IDLE</span>
-                                  ) : (
-                                    <span className="bg-blue-200 text-blue-800">ASSIGNED (FREE)</span>
-                                  )}
-                                </span>
-                              )}
-                              {!isSuggested && (
-                                <span className="inline-block px-2 py-1 text-xs font-bold rounded bg-gray-200 text-gray-700">
-                                  AVAILABLE
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-gray-600">{auto.owner_name}</p>
-                            <p className="text-xs text-gray-500">Area: {auto.area_name || 'N/A'}</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            {/* Empty State */}
+            {!loadingAutos && availableAutos.length === 0 && (
+              <div className="p-4 text-center text-gray-600 border border-gray-200 rounded">
+                No autos available for the requested dates and area.
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3">
               <Button
-                onClick={handleAssignAutos}
+                onClick={handleSubmitAutoSelection}
                 variant="success"
-                disabled={selectedAutos.size === 0 || actionLoading}
+                disabled={selectedAutosSet.size === 0 || actionLoading}
                 className="flex-1"
               >
-                {actionLoading ? 'Assigning...' : `Confirm Assignment (${selectedAutos.size}/${selectedRequest.autos_required})`}
+                {actionLoading ? 'Assigning...' : `✓ Confirm (${selectedAutosSet.size}/${selectedRequest.autos_required})`}
               </Button>
               <Button
-                onClick={() => {
-                  setShowAutoAssignmentModal(false);
-                  setSelectedAutos(new Set());
-                  setAvailableAutos([]);
-                }}
+                onClick={handleCloseAutoSelectionModal}
                 variant="secondary"
                 disabled={actionLoading}
                 className="flex-1"

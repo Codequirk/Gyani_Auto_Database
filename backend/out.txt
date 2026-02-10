@@ -1,0 +1,18 @@
+[STARTUP] Beginning backend startup...
+[DB] Initializing with environment: development
+[DB] DATABASE_URL: postgresql://postgres:alienprags@localhost:5432/ad...
+[DB] Config connection type: string
+[DB] Connection string (first 50 chars): postgresql://postgres:alienprags@localhost:5432/ad
+[DEBUG] About to start cleanup scheduler...
+[DEBUG] Cleanup scheduler DISABLED for debugging
+[DEBUG] About to start server on port 5001...
+[DEBUG] All error handlers registered
+✓ Server running on http://0.0.0.0:5001
+✓ Using PostgreSQL database
+[DEBUG] Server callback executed successfully
+[DEBUG] ✅ Server is now actually listening on port 5001
+[DEBUG] Process is alive and event loop is running
+[0mGET /api/assignments/company/f83f3950-aba0-4166-abcb-9fe37a7b10c3 [31m500[0m 69.071 ms - 92[0m
+[0mGET /api/assignments/company/f83f3950-aba0-4166-abcb-9fe37a7b10c3 [31m500[0m 13.601 ms - 92[0m
+[0mGET /api/company-tickets/admin/all [36m304[0m 26.877 ms - -[0m
+[0mGET /api/assignments/company/f83f3950-aba0-4166-abcb-9fe37a7b10c3 [31m500[0m 8.835 ms - 92[0m

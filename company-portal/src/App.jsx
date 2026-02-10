@@ -4,6 +4,7 @@ import { CompanyAuthProvider, useCompanyAuth } from './context/CompanyAuthContex
 import CompanyHomePage from './pages/CompanyHomePage';
 import CompanyLoginPage from './pages/CompanyLoginPage';
 import CompanyDashboardPage from './pages/CompanyDashboardPage';
+import AutoDetailPage from './pages/AutoDetailPage';
 import './App.css';
 
 function CompanyProtectedRoute({ children }) {
@@ -34,6 +35,14 @@ function AppContent() {
         element={
           <CompanyProtectedRoute>
             <CompanyDashboardPage />
+          </CompanyProtectedRoute>
+        }
+      />
+      <Route
+        path="/autos/:id"
+        element={
+          <CompanyProtectedRoute>
+            <AutoDetailPage />
           </CompanyProtectedRoute>
         }
       />

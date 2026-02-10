@@ -59,11 +59,58 @@ const AutoDetailPage = () => {
   const [confirmOverlapDialog, setConfirmOverlapDialog] = useState(false);
   const [overlappingAssignments, setOverlappingAssignments] = useState([]);
   const [pendingCompanyChange, setPendingCompanyChange] = useState(null);
+  // Advertisement state
+  const [advertisement, setAdvertisement] = useState(null);
+  const [adLoading, setAdLoading] = useState(false);
   const { data: auto, loading, error, refetch } = useFetch(
     () => autoService.get(id),
     [id]
   );
   const { data: companies } = useFetch(() => companyService.list());
+
+  // Check if advertisement image exists for this auto
+  useEffect(() => {
+    if (auto?.id && auto?.status === 'ACTIVE') {
+      const currentAssignment = auto.assignments?.find(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED');
+      
+      if (currentAssignment) {
+        const checkAdvertisement = async () => {
+          try {
+            setAdLoading(true);
+            // Check if image exists by attempting to fetch it
+            const response = await fetch(`/api/autos/${auto.id}/advertisement-image`, {
+              method: 'GET'
+            });
+            
+            if (response.ok) {
+              // Image exists, set a marker to display it
+              console.log('[AUTO-DETAIL] Advertisement image found for auto:', auto.id);
+              setAdvertisement({ exists: true });
+            } else if (response.status === 404) {
+              // Image doesn't exist
+              console.log('[AUTO-DETAIL] No advertisement image for auto:', auto.id);
+              setAdvertisement(null);
+            } else {
+              // Other error
+              console.warn('[AUTO-DETAIL] Unexpected response checking image:', response.status);
+              setAdvertisement(null);
+            }
+          } catch (err) {
+            // Network error or other issue
+            console.error('[AUTO-DETAIL] Error checking advertisement image:', err);
+            setAdvertisement(null);
+          } finally {
+            setAdLoading(false);
+          }
+        };
+        checkAdvertisement();
+      } else {
+        setAdvertisement(null);
+      }
+    } else {
+      setAdvertisement(null);
+    }
+  }, [auto?.id, auto?.status, auto?.assignments]);
 
   if (loading) return <LoadingSpinner />;
   if (error) return <ErrorAlert message={error} />;
@@ -221,204 +268,249 @@ const AutoDetailPage = () => {
     <div>
       <Navbar />
       <div className="max-w-4xl mx-auto p-4 mt-8">
-        {/* Header with Calendar Toggle */}
-        <div className="flex items-center gap-4 mb-6 justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="secondary" onClick={() => navigate('/autos')}>
-              ← Back
-            </Button>
-            <h1 className="text-3xl font-bold">{auto.auto_no}</h1>
-          </div>
-          <Button 
-            variant={showCalendar ? "primary" : "secondary"}
-            onClick={() => setShowCalendar(!showCalendar)}
-            className="px-4 py-2"
-          >
-            📅 {showCalendar ? 'Hide' : 'Show'} Calendar
-          </Button>
-        </div>
-
-        {/* Calendar Section - Inline (Hidden by default) */}
-        {showCalendar && (
-          <div className="mb-6">
-            <AssignmentCalendar assignments={auto.assignments || []} />
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-6">
-          {/* Basic Info */}
-          <Card>
-            <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Auto Number</p>
-                <p className="text-lg font-medium">{auto.auto_no}</p>
+        {/* Check if image exists - show only image section or "no image" message */}
+        {currentAssignment && auto.status === 'ACTIVE' && advertisement ? (
+          // Image exists - show only the image
+          <Card className="bg-purple-50 border-2 border-purple-200">
+            <h2 className="text-xl font-semibold mb-4 text-purple-900">📢 Advertisement</h2>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">Advertisement from {currentAssignment.company_name}:</p>
+              <div className="relative inline-block">
+                <img 
+                  src={`/api/autos/${auto.id}/advertisement-image?t=${Date.now()}`}
+                  alt="Advertisement"
+                  className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
+                  title="Double-click to view full size"
+                  onDoubleClick={() => {
+                    const win = window.open(`/api/autos/${auto.id}/advertisement-image`, '_blank');
+                    win.focus();
+                  }}
+                />
               </div>
-              <div>
-                <p className="text-gray-600 text-sm">Owner Name</p>
-                <p className="text-lg font-medium">{auto.owner_name}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Area</p>
-                <p className="text-lg font-medium">{auto.area_name || 'N/A'}</p>
-              </div>
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                ← Back to Dashboard
+              </button>
             </div>
           </Card>
-
-          {/* Current Assignment */}
-          {currentAssignment && (
-            <Card className="bg-blue-50 border-2 border-blue-200">
-              <h2 className="text-xl font-semibold mb-4 text-blue-900">Current Assignment</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-gray-600 text-sm">Company</p>
-                  <p className="text-lg font-medium">{currentAssignment.company_name}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600 text-sm">Status</p>
-                  <Badge className={currentAssignment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-                    {currentAssignment.status}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-gray-600 text-sm">Start Date</p>
-                  <p className="text-lg font-medium">{formatDate(currentAssignment.start_date)}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600 text-sm">End Date</p>
-                  <p className="text-lg font-medium">{formatDate(currentAssignment.end_date)}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600 text-sm">Days Remaining</p>
-                  <p className={`text-lg font-bold ${currentAssignment.days_remaining <= 2 ? 'text-red-600' : 'text-green-600'}`}>
-                    {currentAssignment.days_remaining !== null ? `${currentAssignment.days_remaining} days` : '-'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-600 text-sm">Total Days</p>
-                  <p className="text-lg font-medium">
-                    {currentAssignment.days && currentAssignment.days > 0 ? currentAssignment.days : '-'}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Additional Info */}
-          <Card>
-            <h2 className="text-xl font-semibold mb-4">Additional Details</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Notes</p>
-                <p className="text-lg">{auto.notes || '-'}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Last Updated</p>
-                <p className="text-lg">{formatDate(auto.last_updated_at)}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Created</p>
-                <p className="text-lg">{formatDate(auto.created_at)}</p>
-              </div>
+        ) : currentAssignment && auto.status === 'ACTIVE' ? (
+          // No image - show message
+          <Card className="bg-gray-50 border-2 border-gray-300">
+            <div className="text-center py-12">
+              <p className="text-lg text-gray-700 mb-4">📭 No advertisement image has been uploaded for this auto yet.</p>
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                ← Back to Dashboard
+              </button>
             </div>
           </Card>
+        ) : (
+          // Not ACTIVE or no current assignment - show full details
+          <>
+            {/* Header with Calendar Toggle */}
+            <div className="flex items-center gap-4 mb-6 justify-between">
+              <div className="flex items-center gap-4">
+                <Button variant="secondary" onClick={() => navigate('/dashboard')}>
+                  ← Back to Dashboard
+                </Button>
+                <h1 className="text-3xl font-bold">{auto.auto_no}</h1>
+              </div>
+              <Button 
+                variant={showCalendar ? "primary" : "secondary"}
+                onClick={() => setShowCalendar(!showCalendar)}
+                className="px-4 py-2"
+              >
+                📅 {showCalendar ? 'Hide' : 'Show'} Calendar
+              </Button>
+            </div>
 
-          {/* Assignment Status Panel - ACTIVE and PREBOOKED only */}
-          {auto.assignments && auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).length > 0 && (
-            <Card>
-              <h2 className="text-xl font-semibold mb-4">Assignment Status</h2>
-              {editSuccess && (
-                <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
-                  {editSuccess}
+            {/* Calendar Section - Inline (Hidden by default) */}
+            {showCalendar && (
+              <div className="mb-6">
+                <AssignmentCalendar assignments={auto.assignments || []} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-6">
+              {/* Basic Info */}
+              <Card>
+                <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-gray-600 text-sm">Auto Number</p>
+                    <p className="text-lg font-medium">{auto.auto_no}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-sm">Owner Name</p>
+                    <p className="text-lg font-medium">{auto.owner_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-sm">Area</p>
+                    <p className="text-lg font-medium">{auto.area_name || 'N/A'}</p>
+                  </div>
                 </div>
+              </Card>
+
+              {/* Current Assignment */}
+              {currentAssignment && (
+                <Card className="bg-blue-50 border-2 border-blue-200">
+                  <h2 className="text-xl font-semibold mb-4 text-blue-900">Current Assignment</h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-gray-600 text-sm">Company</p>
+                      <p className="text-lg font-medium">{currentAssignment.company_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-sm">Status</p>
+                      <Badge className={currentAssignment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                        {currentAssignment.status}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-sm">Start Date</p>
+                      <p className="text-lg font-medium">{formatDate(currentAssignment.start_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-sm">End Date</p>
+                      <p className="text-lg font-medium">{formatDate(currentAssignment.end_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-sm">Days Remaining</p>
+                      <p className={`text-lg font-bold ${currentAssignment.days_remaining <= 2 ? 'text-red-600' : 'text-green-600'}`}>
+                        {currentAssignment.days_remaining !== null ? `${currentAssignment.days_remaining} days` : '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-sm">Total Days</p>
+                      <p className="text-lg font-medium">
+                        {currentAssignment.days && currentAssignment.days > 0 ? currentAssignment.days : '-'}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
               )}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100 border-b">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Company</th>
-                      <th className="px-4 py-2 text-left">Start Date</th>
-                      <th className="px-4 py-2 text-left">End Date</th>
-                      <th className="px-4 py-2 text-left">Days</th>
-                      <th className="px-4 py-2 text-left">Remaining</th>
-                      <th className="px-4 py-2 text-left">Status</th>
-                      <th className="px-4 py-2 text-left">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).map((assignment) => (
-                      <tr key={assignment.id} className="border-t hover:bg-gray-50">
-                        <td className="px-4 py-2">{assignment.company_name}</td>
-                        <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
-                        <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
-                        <td className="px-4 py-2">{assignment.days || '-'}</td>
-                        <td className="px-4 py-2">
-                          <span className={computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) <= 2 && computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) > 0 ? 'font-bold text-red-600' : ''}>
-                            {assignment.days_remaining !== null ? `${computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status)}` : '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <Badge className={assignment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-                            {assignment.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                          <AssignmentActionMenu
-                            assignment={assignment}
-                            onEdit={handleEditAssignment}
-                            onDelete={handleDeleteAssignment}
-                            isLoading={editLoading}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
 
-          {/* Completed Assignments Panel */}
-          {auto.assignments && auto.assignments.filter(a => a.status === 'COMPLETED').length > 0 && (
-            <Card>
-              <h2 className="text-xl font-semibold mb-4">Completed</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100 border-b">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Company</th>
-                      <th className="px-4 py-2 text-left">Start Date</th>
-                      <th className="px-4 py-2 text-left">End Date</th>
-                      <th className="px-4 py-2 text-left">Total Days</th>
-                      <th className="px-4 py-2 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auto.assignments.filter(a => a.status === 'COMPLETED').map((assignment) => (
-                      <tr key={assignment.id} className="border-t hover:bg-gray-50">
-                        <td className="px-4 py-2">{assignment.company_name}</td>
-                        <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
-                        <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
-                        <td className="px-4 py-2">{assignment.days || '-'}</td>
-                        <td className="px-4 py-2">
-                          <Badge className="bg-gray-200 text-gray-800">
-                            {assignment.status}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
+              {/* Additional Info */}
+              <Card>
+                <h2 className="text-xl font-semibold mb-4">Additional Details</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-gray-600 text-sm">Notes</p>
+                    <p className="text-lg">{auto.notes || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-sm">Last Updated</p>
+                    <p className="text-lg">{formatDate(auto.last_updated_at)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-sm">Created</p>
+                    <p className="text-lg">{formatDate(auto.created_at)}</p>
+                  </div>
+                </div>
+              </Card>
 
-          {(!auto.assignments || auto.assignments.length === 0) && (
-            <Card>
-              <p className="text-center py-8 text-gray-600">No assignments for this auto</p>
-            </Card>
-          )}
-        </div>
+              {/* Assignment Status Panel - ACTIVE and PREBOOKED only */}
+              {auto.assignments && auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).length > 0 && (
+                <Card>
+                  <h2 className="text-xl font-semibold mb-4">Assignment Status</h2>
+                  {editSuccess && (
+                    <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
+                      {editSuccess}
+                    </div>
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100 border-b">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Company</th>
+                          <th className="px-4 py-2 text-left">Start Date</th>
+                          <th className="px-4 py-2 text-left">End Date</th>
+                          <th className="px-4 py-2 text-left">Days</th>
+                          <th className="px-4 py-2 text-left">Remaining</th>
+                          <th className="px-4 py-2 text-left">Status</th>
+                          <th className="px-4 py-2 text-left">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).map((assignment) => (
+                          <tr key={assignment.id} className="border-t hover:bg-gray-50">
+                            <td className="px-4 py-2">{assignment.company_name}</td>
+                            <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
+                            <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
+                            <td className="px-4 py-2">{assignment.days || '-'}</td>
+                            <td className="px-4 py-2">
+                              <span className={computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) <= 2 && computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status) > 0 ? 'font-bold text-red-600' : ''}>
+                                {assignment.days_remaining !== null ? `${computeDaysRemainingByStatus(assignment.start_date, assignment.end_date, assignment.status)}` : '-'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2">
+                              <Badge className={assignment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                                {assignment.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <AssignmentActionMenu
+                                assignment={assignment}
+                                onEdit={handleEditAssignment}
+                                onDelete={handleDeleteAssignment}
+                                isLoading={editLoading}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+
+              {/* Completed Assignments Panel */}
+              {auto.assignments && auto.assignments.filter(a => a.status === 'COMPLETED').length > 0 && (
+                <Card>
+                  <h2 className="text-xl font-semibold mb-4">Completed</h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100 border-b">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Company</th>
+                          <th className="px-4 py-2 text-left">Start Date</th>
+                          <th className="px-4 py-2 text-left">End Date</th>
+                          <th className="px-4 py-2 text-left">Total Days</th>
+                          <th className="px-4 py-2 text-left">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auto.assignments.filter(a => a.status === 'COMPLETED').map((assignment) => (
+                          <tr key={assignment.id} className="border-t hover:bg-gray-50">
+                            <td className="px-4 py-2">{assignment.company_name}</td>
+                            <td className="px-4 py-2">{formatDate(assignment.start_date)}</td>
+                            <td className="px-4 py-2">{formatDate(assignment.end_date)}</td>
+                            <td className="px-4 py-2">{assignment.days || '-'}</td>
+                            <td className="px-4 py-2">
+                              <Badge className="bg-gray-200 text-gray-800">
+                                {assignment.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+
+              {(!auto.assignments || auto.assignments.length === 0) && (
+                <Card>
+                  <p className="text-center py-8 text-gray-600">No assignments for this auto</p>
+                </Card>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Edit Assignment Modal */}

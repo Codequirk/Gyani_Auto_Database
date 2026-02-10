@@ -125,8 +125,8 @@ const CompanyRequestsPage = () => {
       setAvailableAutos(autosResponse.data || []);
       
       // Get intelligent suggestions from backend
-      const suggestionResponse = await api.get(`/company-tickets/admin/${selectedRequest.id}/suggest-autos`);
-      const suggestedAutoIds = suggestionResponse.data.suggested_auto_ids || [];
+      const suggestionResponse = await api.get(`/company-tickets/admin/${selectedRequest.id}/available-autos`);
+      const suggestedAutoIds = suggestionResponse.data.available_autos?.map(a => a.id) || [];
       
       // Pre-select the suggested autos
       const newSelected = new Set(suggestedAutoIds);
@@ -310,14 +310,15 @@ const CompanyRequestsPage = () => {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Company Requests</h1>
-            <p className="text-gray-600">Manage company registration and auto requests</p>
+            <h1 className="text-3xl font-bold text-gray-900">Requests</h1>
+            <p className="text-gray-600">Manage company and auto requests</p>
           </div>
           <Button onClick={fetchRequests}>🔄 Refresh</Button>
         </div>
 
         {error && <ErrorAlert message={error} />}
 
+        {/* Status Filter Buttons */}
         <div className="mb-6 p-4 rounded-lg bg-white border border-gray-200">
           <div className="flex gap-2">
             {['PENDING', 'APPROVED', 'REJECTED'].map((status) => (
@@ -332,15 +333,16 @@ const CompanyRequestsPage = () => {
           </div>
         </div>
 
+        {/* Company Requests */}
         {requests.length === 0 ? (
-          <Card>
-            <div className="text-center py-12">
-              <p className="text-gray-600">No {filterStatus.toLowerCase()} requests</p>
-            </div>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {requests.map((request) => (
+            <Card>
+              <div className="text-center py-12">
+                <p className="text-gray-600">No {filterStatus.toLowerCase()} requests</p>
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {requests.map((request) => (
               <Card key={request.id} className="p-4 bg-white cursor-pointer hover:shadow-lg transition-shadow" onDoubleClick={() => handleViewDetails(request)}>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
@@ -579,6 +581,107 @@ const CompanyRequestsPage = () => {
                 variant="secondary"
                 className="flex-1"
                 disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Auto Assignment Modal */}
+      <Modal
+        isOpen={showAutoAssignmentModal && selectedRequest !== null}
+        onClose={() => {
+          setShowAutoAssignmentModal(false);
+          setSelectedAutos(new Set());
+        }}
+        title={`Select Autos for ${selectedRequest?.company_name || 'Company'}`}
+      >
+        {selectedRequest && (
+          <div className="space-y-4">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <h3 className="font-semibold text-blue-900 mb-2">📋 Request Details</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm text-blue-800">
+                <div>
+                  <p className="text-gray-700">Company</p>
+                  <p className="font-bold">{selectedRequest.company_name}</p>
+                </div>
+                <div>
+                  <p className="text-gray-700">Autos Needed</p>
+                  <p className="font-bold">{selectedRequest.autos_required}</p>
+                </div>
+                <div>
+                  <p className="text-gray-700">Duration</p>
+                  <p className="font-bold">{selectedRequest.days_required} days</p>
+                </div>
+                <div>
+                  <p className="text-gray-700">Start Date</p>
+                  <p className="font-bold">{formatDate(selectedRequest.start_date)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Available Autos ({availableAutos.length} available)
+              </label>
+              <div className="border rounded-lg p-3 max-h-64 overflow-y-auto bg-white">
+                {availableAutos.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No autos available for selection</p>
+                ) : (
+                  <div className="space-y-2">
+                    {availableAutos.map((auto) => (
+                      <label key={auto.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedAutos.has(auto.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedAutos);
+                            if (e.target.checked) {
+                              newSelected.add(auto.id);
+                            } else {
+                              newSelected.delete(auto.id);
+                            }
+                            setSelectedAutos(newSelected);
+                          }}
+                          disabled={selectedAutos.size >= selectedRequest.autos_required && !selectedAutos.has(auto.id)}
+                          className="cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm">{auto.auto_no}</p>
+                          <p className="text-xs text-gray-600">{auto.owner_name} • {auto.area_name}</p>
+                        </div>
+                        <Badge variant={auto.status === 'IDLE' ? 'success' : 'info'}>
+                          {auto.status}
+                        </Badge>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                Selected: {selectedAutos.size} / {selectedRequest.autos_required}
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={handleAssignAutos}
+                variant="success"
+                disabled={actionLoading || selectedAutos.size === 0}
+                className="flex-1"
+              >
+                {actionLoading ? 'Assigning...' : '✓ Assign Selected Autos'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowAutoAssignmentModal(false);
+                  setSelectedAutos(new Set());
+                }}
+                variant="secondary"
+                disabled={actionLoading}
+                className="flex-1"
               >
                 Cancel
               </Button>

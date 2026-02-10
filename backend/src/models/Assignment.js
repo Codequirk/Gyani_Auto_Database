@@ -15,12 +15,33 @@ class Assignment {
     return db('assignments').where({ status: 'ACTIVE' }).orderBy('start_date', 'desc');
   }
 
+  static async findAll() {
+    // Return all non-deleted assignments
+    return db('assignments')
+      .whereIn('auto_id', 
+        db('autos').select('id').where({ deleted_at: null })
+      )
+      .orderBy('start_date', 'desc');
+  }
+
   static async findByAutoId(autoId) {
-    return db('assignments').where({ auto_id: autoId }).orderBy('start_date', 'desc');
+    // Only return assignments where the auto still exists (not soft-deleted)
+    return db('assignments')
+      .where({ auto_id: autoId })
+      .whereIn('auto_id',
+        db('autos').select('id').where({ deleted_at: null })
+      )
+      .orderBy('start_date', 'desc');
   }
 
   static async findByCompanyId(companyId) {
-    return db('assignments').where({ company_id: companyId }).orderBy('start_date', 'desc');
+    // Only return assignments where the auto still exists (not soft-deleted)
+    return db('assignments')
+      .where({ company_id: companyId })
+      .whereIn('auto_id', 
+        db('autos').select('id').where({ deleted_at: null })
+      )
+      .orderBy('start_date', 'desc');
   }
 
   static async findCurrentActiveAssignment(autoId) {

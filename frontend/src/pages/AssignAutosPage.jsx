@@ -43,7 +43,15 @@ const AssignAutosPage = () => {
       }
       
       const autosResponse = await api.get(autosUrl);
-      setAutos(autosResponse.data || []);
+      const autosData = autosResponse.data || [];
+      
+      // Use display_status if available (TODAY's status), otherwise fall back to status
+      const autosWithCorrectStatus = autosData.map(auto => ({
+        ...auto,
+        status: auto.display_status || auto.status || 'IDLE'
+      }));
+      
+      setAutos(autosWithCorrectStatus);
       
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load data');
@@ -196,7 +204,18 @@ const AssignAutosPage = () => {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {autos.map((auto) => (
+              {(() => {
+                // Sort autos by status: IDLE first, then ACTIVE, then PREBOOKED
+                const statusPriority = { IDLE: 0, ACTIVE: 1, PREBOOKED: 2 };
+                const sortedAutos = [...autos].sort((a, b) => {
+                  const aStatus = a.display_status || a.status;
+                  const bStatus = b.display_status || b.status;
+                  const aPriority = statusPriority[aStatus] ?? 99;
+                  const bPriority = statusPriority[bStatus] ?? 99;
+                  return aPriority - bPriority;
+                });
+                
+                return sortedAutos.map((auto) => (
                 <Card
                   key={auto.id}
                   className={`p-4 cursor-pointer transition ${
@@ -233,8 +252,11 @@ const AssignAutosPage = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Status:</span>
-                      <Badge className={auto.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-                        {auto.status}
+                      <Badge className={(() => {
+                        const displayStatus = auto.display_status || auto.status;
+                        return displayStatus === 'ACTIVE' ? 'bg-green-100 text-green-800' : displayStatus === 'PREBOOKED' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800';
+                      })()}>
+                        {auto.display_status || auto.status}
                       </Badge>
                     </div>
                   </div>
@@ -246,7 +268,8 @@ const AssignAutosPage = () => {
                     </div>
                   )}
                 </Card>
-              ))}
+                );
+              })()}
             </div>
           )}
         </div>

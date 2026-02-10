@@ -85,11 +85,52 @@ const AutoDetailPage = () => {
   const [confirmOverlapDialog, setConfirmOverlapDialog] = useState(false);
   const [overlappingAssignments, setOverlappingAssignments] = useState([]);
   const [pendingCompanyChange, setPendingCompanyChange] = useState(null);
+  // Image upload state
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [imageSuccess, setImageSuccess] = useState('');
+  const [advertisements, setAdvertisements] = useState({});
   const { data: auto, loading, error, refetch } = useFetch(
     () => autoService.get(id),
     [id]
   );
   const { data: companies } = useFetch(() => companyService.list());
+
+  // Load advertisement images for the current assignment
+  useEffect(() => {
+    if (auto?.id) {
+      const currentAssignment = auto.assignments
+        ?.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED')
+        .sort((a, b) => new Date(a.start_date) - new Date(b.start_date))[0];
+      
+      if (currentAssignment && (currentAssignment.status === 'ACTIVE' || currentAssignment.status === 'PREBOOKED')) {
+        const checkAdvertisement = async () => {
+          try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`/api/autos/${auto.id}/advertisement-image`, {
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            
+            // If image exists (200 OK), mark it as available
+            if (response.ok) {
+              setAdvertisements(prev => ({ 
+                ...prev, 
+                [currentAssignment.id]: { 
+                  id: `${auto.id}-image`,
+                  url: `/api/autos/${auto.id}/advertisement-image`
+                } 
+              }));
+            }
+            // If 404, image doesn't exist - that's fine, just don't show it
+          } catch (err) {
+            console.error('Error checking advertisement:', err);
+          }
+        };
+        
+        checkAdvertisement();
+      }
+    }
+  }, [auto?.id, auto?.assignments]);
 
   if (loading) return <LoadingSpinner />;
   if (error) return <ErrorAlert message={error} />;
@@ -245,6 +286,117 @@ const AutoDetailPage = () => {
     }
   };
 
+  const handleImageUpload = async (file) => {
+    if (!currentAssignment || currentAssignment.status !== 'ACTIVE') {
+      setImageError('Can only upload images for ACTIVE autos');
+      return;
+    }
+
+    // Validate file type
+    if (file.type !== 'image/png') {
+      setImageError('Only PNG files are allowed');
+      return;
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingImage(true);
+    setImageError('');
+    setImageSuccess('');
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setImageError('Not authenticated. Please login again.');
+        setUploadingImage(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        `/api/autos/${auto.id}/advertisement-image`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to upload image');
+      }
+
+      const data = await response.json();
+      setAdvertisements(prev => ({ ...prev, [currentAssignment.id]: data.image }));
+      setImageSuccess('Image uploaded successfully!');
+      setTimeout(() => setImageSuccess(''), 3000);
+    } catch (err) {
+      setImageError(err.message || 'Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleImageDelete = async () => {
+    if (!currentAssignment || !advertisements[currentAssignment.id]) {
+      setImageError('No image to delete');
+      return;
+    }
+
+    if (!window.confirm('Are you sure you want to delete this advertisement image?')) {
+      return;
+    }
+
+    setUploadingImage(true);
+    setImageError('');
+    setImageSuccess('');
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setImageError('Not authenticated. Please login again.');
+        setUploadingImage(false);
+        return;
+      }
+
+      const response = await fetch(
+        `/api/autos/${auto.id}/advertisement-image`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete image');
+      }
+
+      setAdvertisements(prev => {
+        const updated = { ...prev };
+        delete updated[currentAssignment.id];
+        return updated;
+      });
+      setImageSuccess('Image deleted successfully!');
+      setTimeout(() => setImageSuccess(''), 3000);
+    } catch (err) {
+      setImageError(err.message || 'Failed to delete image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   return (
     <div>
       <Navbar />
@@ -332,6 +484,89 @@ const AutoDetailPage = () => {
                     {currentAssignment.days && currentAssignment.days > 0 ? currentAssignment.days : '-'}
                   </p>
                 </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Advertisement Image Section - Only for ACTIVE autos with current assignment */}
+          {currentAssignment && currentAssignment.status === 'ACTIVE' && (
+            <Card className="bg-purple-50 border-2 border-purple-200">
+              <h2 className="text-xl font-semibold mb-4 text-purple-900">📢 Advertisement Image</h2>
+              
+              {imageError && (
+                <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+                  {imageError}
+                </div>
+              )}
+              {imageSuccess && (
+                <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
+                  {imageSuccess}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {advertisements[currentAssignment.id] ? (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-3">Current Advertisement:</p>
+                    <div className="relative inline-block">
+                      <img 
+                        src={`/api/autos/${auto.id}/advertisement-image?t=${Date.now()}`}
+                        alt="Advertisement"
+                        className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
+                        title="Double-click to view full size"
+                        onDoubleClick={() => {
+                          const win = window.open(`/api/autos/${auto.id}/advertisement-image`, '_blank');
+                          win.focus();
+                        }}
+                      />
+                    </div>
+                    <div className="mt-4 space-x-2">
+                      <Button 
+                        disabled={uploadingImage}
+                        className="cursor-pointer"
+                        onClick={() => document.getElementById('advertisement-file-input-replace').click()}
+                      >
+                        {uploadingImage ? 'Uploading...' : '🖼️ Replace Image'}
+                      </Button>
+                      <input 
+                        id="advertisement-file-input-replace"
+                        type="file" 
+                        accept=".png,image/png"
+                        onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
+                        disabled={uploadingImage}
+                        className="hidden"
+                      />
+                      <Button 
+                        variant="danger"
+                        onClick={handleImageDelete}
+                        disabled={uploadingImage}
+                      >
+                        {uploadingImage ? 'Processing...' : '🗑️ Delete Image'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-3">No advertisement image uploaded yet.</p>
+                    <div>
+                      <Button 
+                        disabled={uploadingImage} 
+                        className="cursor-pointer"
+                        onClick={() => document.getElementById('advertisement-file-input').click()}
+                      >
+                        {uploadingImage ? 'Uploading...' : '📤 Upload Advertisement (PNG)'}
+                      </Button>
+                      <input 
+                        id="advertisement-file-input"
+                        type="file" 
+                        accept=".png,image/png"
+                        onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
+                        disabled={uploadingImage}
+                        className="hidden"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
           )}

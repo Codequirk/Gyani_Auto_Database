@@ -10,9 +10,6 @@ module.exports = {
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      ssl: {
-        rejectUnauthorized: false
-      },
       connectionTimeoutMillis: 30000,
       idleTimeoutMillis: 30000,
     },
@@ -38,8 +35,6 @@ module.exports = {
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      ssl: 'require',
-      // Remove family restriction
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
       statement_timeout: 30000,

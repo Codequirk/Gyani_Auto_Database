@@ -157,13 +157,13 @@ const CompanyDetailPage = () => {
     [companyId]
   );
 
-  // Set up polling for assignments (30-second refresh)
+  // Set up polling for assignments (10-second refresh to sync with deletions)
   useEffect(() => {
     if (!companyId) return;
     
     const pollInterval = setInterval(() => {
       refetchAssignments();
-    }, 30000);
+    }, 10000);
 
     return () => clearInterval(pollInterval);
   }, [companyId, refetchAssignments]);
@@ -191,8 +191,29 @@ const CompanyDetailPage = () => {
   const enrichedAssignments = (companyAssignments || []).map((assignment) => {
     const auto = autoMap[assignment.auto_id];
     const days = calculateDaysBetween(assignment.start_date, assignment.end_date);
+    
+    // Calculate current status based on today's date
+    let currentStatus = assignment.status;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDate = new Date(assignment.start_date);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(assignment.end_date);
+    endDate.setHours(0, 0, 0, 0);
+    
+    if (assignment.status !== 'COMPLETED') {
+      if (today >= startDate && today <= endDate) {
+        currentStatus = 'ACTIVE';
+      } else if (today < startDate) {
+        currentStatus = 'PREBOOKED';
+      } else if (today > endDate) {
+        currentStatus = 'COMPLETED';
+      }
+    }
+    
     return {
       ...assignment,
+      status: currentStatus,
       auto_no: auto?.auto_no || 'N/A',
       owner_name: auto?.owner_name || 'N/A',
       area_name: auto?.area_name || 'N/A',
@@ -397,7 +418,9 @@ const CompanyDetailPage = () => {
           <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-lg">
             <div className="text-center">
               <p className="text-sm font-medium text-gray-600">Total Autos Assigned</p>
-              <p className="text-2xl font-bold text-gray-900">{enrichedAssignments.length}</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {enrichedAssignments.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED').length}
+              </p>
             </div>
             <div className="text-center">
               <p className="text-sm font-medium text-gray-600">Active Assignments</p>
@@ -414,7 +437,7 @@ const CompanyDetailPage = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-gray-600">Remaining Days</p>
               <p className="text-2xl font-bold text-purple-600">
-                {calculateTotalAssignedDays(enrichedAssignments)} days
+                {calculateTotalAssignedDays(enrichedAssignments.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED'))} days
               </p>
             </div>
           </div>

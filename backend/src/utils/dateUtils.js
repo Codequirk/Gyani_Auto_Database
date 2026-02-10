@@ -84,9 +84,8 @@ function isPriority(endDate) {
 // Get date N days from a given date (or from now if no date provided)
 function getDateNDaysFromNow(days, fromDate = null) {
   const date = fromDate ? new Date(fromDate) : new Date();
-  // If 1 day is selected, end date should be the same day (start date)
-  // So we add (days - 1) to the start date
-  date.setDate(date.getDate() + (parseInt(days) - 1));
+  // Add the exact number of days (caller handles the -1 adjustment if needed)
+  date.setDate(date.getDate() + parseInt(days));
   return date;
 }
 

@@ -322,7 +322,7 @@ const CompanyDashboardPage = () => {
                 </thead>
                 <tbody>
                   {dashboard.active_assignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-t hover:bg-gray-50">
+                    <tr key={assignment.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${assignment.auto_id}`)}>
                       <td className="px-4 py-2 font-medium">{assignment.auto_no}</td>
                       <td className="px-4 py-2">{assignment.owner_name}</td>
                       <td className="px-4 py-2">{assignment.area_name}</td>

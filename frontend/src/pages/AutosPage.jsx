@@ -111,6 +111,11 @@ const AutosPage = () => {
   const [autoEditData, setAutoEditData] = useState({ auto_no: '', owner_name: '', driver_phone: '', notes: '' });
   const [autoEditLoading, setAutoEditLoading] = useState(false);
   const [autoEditError, setAutoEditError] = useState('');
+  const [selectedAreaForMenu, setSelectedAreaForMenu] = useState(null);
+  const [showAreaMenu, setShowAreaMenu] = useState(null);
+  const [showEditAreaModal, setShowEditAreaModal] = useState(false);
+  const [editAreaData, setEditAreaData] = useState({ id: '', name: '', pin_code: '' });
+  const [editAreaLoading, setEditAreaLoading] = useState(false);
   const navigate = useNavigate();
 
   // Debounce search input
@@ -659,6 +664,91 @@ const AutosPage = () => {
     }
   };
 
+  const handleEditArea = async (e) => {
+    e.preventDefault();
+    if (!editAreaData.name.trim()) {
+      setError('Area name is required');
+      return;
+    }
+
+    setEditAreaLoading(true);
+    setError('');
+
+    try {
+      // Check if pin code is being changed and already exists elsewhere
+      if (editAreaData.pin_code.trim()) {
+        const existingArea = areas?.find(a => a.pin_code === editAreaData.pin_code.trim() && a.id !== editAreaData.id);
+        if (existingArea) {
+          setError(`This pin code already exists for area "${existingArea.name}"`);
+          setEditAreaLoading(false);
+          return;
+        }
+      }
+
+      await areaService.update(editAreaData.id, {
+        name: editAreaData.name.trim(),
+        pin_code: editAreaData.pin_code.trim(),
+      });
+
+      setSuccess(`Area "${editAreaData.name}" updated successfully`);
+      setShowEditAreaModal(false);
+      setEditAreaData({ id: '', name: '', pin_code: '' });
+      
+      // Refetch areas
+      await refetchAreas();
+
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update area');
+    } finally {
+      setEditAreaLoading(false);
+    }
+  };
+
+  const handleDeleteArea = async (areaId, confirmed = false) => {
+    setError('');
+    try {
+      const response = await areaService.delete(areaId, { confirmed });
+      
+      // Check if confirmation is required
+      if (response.data && response.data.requiresConfirmation) {
+        // Show confirmation dialog
+        const confirmDelete = window.confirm(response.data.message);
+        
+        if (confirmDelete) {
+          // User confirmed, retry with confirmed flag
+          const deleteResponse = await areaService.delete(areaId, { confirmed: true });
+          setSuccess(deleteResponse.data.message || 'Area deleted successfully');
+          
+          // If the deleted area was selected, clear the selection
+          if (selectedArea === areaId) {
+            setSelectedArea('');
+          }
+          
+          // Refetch areas
+          await refetchAreas();
+          
+          setTimeout(() => setSuccess(''), 3000);
+        }
+        return;
+      }
+
+      setSuccess(response.data.message || 'Area deleted successfully');
+      
+      // If the deleted area was selected, clear the selection
+      if (selectedArea === areaId) {
+        setSelectedArea('');
+      }
+      
+      // Refetch areas
+      await refetchAreas();
+
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete area');
+    }
+  };
+
   const handleManageAssignment = (auto) => {
     setSelectedAutoForManagement(auto);
     // Initialize edit data with current values
@@ -870,22 +960,65 @@ const AutosPage = () => {
                     </div>
                   </button>
                   {areas?.map((area) => (
-                    <button
+                    <div
                       key={area.id}
-                      onClick={() => {
-                        setSelectedArea(area.id);
-                        setShowAvailableAreas(false);
-                      }}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition border-b last:border-b-0 ${
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition border-b last:border-b-0 flex items-center justify-between group ${
                         selectedArea === area.id ? 'bg-blue-100' : ''
                       }`}
                     >
-                      <div>{area.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {area.pin_code && `${area.pin_code} • `}
-                        {getAutoCountByArea(area.id)} auto{getAutoCountByArea(area.id) !== 1 ? 's' : ''}
+                      <button
+                        onClick={() => {
+                          setSelectedArea(area.id);
+                          setShowAvailableAreas(false);
+                        }}
+                        className="flex-1 text-left"
+                      >
+                        <div>{area.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {area.pin_code && `${area.pin_code} • `}
+                          {getAutoCountByArea(area.id)} auto{getAutoCountByArea(area.id) !== 1 ? 's' : ''}
+                        </div>
+                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAreaMenu(showAreaMenu === area.id ? null : area.id);
+                          }}
+                          className="p-1 hover:bg-gray-200 rounded transition"
+                          title="Edit or delete area"
+                        >
+                          ⋯
+                        </button>
+                        {showAreaMenu === area.id && (
+                          <div className="absolute right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-20 min-w-32">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditAreaData({ id: area.id, name: area.name, pin_code: area.pin_code });
+                                setShowEditAreaModal(true);
+                                setShowAreaMenu(null);
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition border-b"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete area "${area.name}"? This action cannot be undone.`)) {
+                                  handleDeleteArea(area.id);
+                                }
+                                setShowAreaMenu(null);
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -1528,6 +1661,58 @@ const AutosPage = () => {
               onClick={() => {
                 setShowAddAreaModal(false);
                 setNewArea({ name: '', pin_code: '' });
+                setError('');
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Area Modal */}
+      <Modal
+        isOpen={showEditAreaModal}
+        onClose={() => {
+          setShowEditAreaModal(false);
+          setEditAreaData({ id: '', name: '', pin_code: '' });
+          setError('');
+        }}
+        title="Edit Area"
+      >
+        <form onSubmit={handleEditArea}>
+          {error && <ErrorAlert message={error} />}
+          
+          <Input
+            type="text"
+            label="Area Name *"
+            required
+            value={editAreaData.name}
+            onChange={(e) => setEditAreaData({ ...editAreaData, name: e.target.value })}
+            placeholder="e.g., Malleswaram"
+            className="mb-4"
+          />
+
+          <Input
+            type="text"
+            label="Pin Code *"
+            required
+            value={editAreaData.pin_code}
+            onChange={(e) => setEditAreaData({ ...editAreaData, pin_code: e.target.value })}
+            placeholder="e.g., 560003"
+          />
+
+          <div className="flex gap-2 mt-4">
+            <Button type="submit" disabled={editAreaLoading} className="flex-1">
+              {editAreaLoading ? 'Updating...' : 'Update Area'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowEditAreaModal(false);
+                setEditAreaData({ id: '', name: '', pin_code: '' });
                 setError('');
               }}
               className="flex-1"

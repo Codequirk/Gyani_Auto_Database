@@ -57,17 +57,16 @@ const CompanyRequestAssignmentPage = () => {
       
       // Get intelligent suggestions from backend
       try {
-        const suggestionResponse = await api.get(`/company-tickets/admin/${requestId}/suggest-autos`);
-        const suggestedIds = suggestionResponse.data.suggested_auto_ids || [];
-        setSuggestedAutoIds(suggestedIds);
+        const suggestionResponse = await api.get(`/company-tickets/admin/${requestId}/available-autos`);
+        const suggestedIds = suggestionResponse.data.available_autos || [];
+        setSuggestedAutoIds(suggestedIds.map(a => a.id));
         
         // Pre-select suggested autos
-        setSelectedAutos(new Set(suggestedIds));
+        setSelectedAutos(new Set(suggestedIds.map(a => a.id)));
       } catch (err) {
         // Suggestions not available, continue without them
         console.warn('Could not fetch auto suggestions');
       }
-      
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load data');
     } finally {

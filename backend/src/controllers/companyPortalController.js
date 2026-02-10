@@ -3,6 +3,7 @@ const Assignment = require('../models/Assignment');
 const Auto = require('../models/Auto');
 const CompanyTicket = require('../models/CompanyTicket');
 const { computeDaysRemaining } = require('../utils/dateUtils');
+const { deleteOldCompletedAssignments } = require('../utils/assignmentCleanup');
 
 /**
  * Calculate total days between start and end dates (inclusive)
@@ -88,31 +89,49 @@ exports.getCompanyAssignments = async (req, res, next) => {
       }
     }
     
+    // Filter to show ACTIVE, PREBOOKED, and recently COMPLETED assignments (within 1 day)
+    const oneDayAgo = new Date(today);
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    
+    const activeAssignments = assignments.filter(a => {
+      if (a.status === 'ACTIVE' || a.status === 'PREBOOKED') {
+        return true;
+      }
+      // Also show COMPLETED assignments from yesterday/today for reference
+      if (a.status === 'COMPLETED') {
+        const endDate = new Date(a.end_date);
+        endDate.setHours(0, 0, 0, 0);
+        // Show if ended today or yesterday
+        return endDate >= oneDayAgo && endDate <= today;
+      }
+      return false;
+    });
+
     // Enrich with auto details and days remaining
-    const enrichedAssignments = await Promise.all(
-      assignments.map(async (assignment) => {
+    const enrichedAssignments = (await Promise.all(
+      activeAssignments.map(async (assignment) => {
         try {
           const auto = await Auto.findById(assignment.auto_id);
+          
+          // Skip assignments where auto doesn't exist (deleted auto)
+          if (!auto) {
+            return null;
+          }
+          
           return {
             ...assignment,
-            auto_no: auto?.auto_no || 'Unknown',
-            owner_name: auto?.owner_name || 'Unknown',
-            area_id: auto?.area_id || '',
-            area_name: auto?.area_name || 'Unknown',
+            auto_no: auto.auto_no || 'Unknown',
+            owner_name: auto.owner_name || 'Unknown',
+            area_id: auto.area_id || '',
+            area_name: auto.area_name || 'Unknown',
             days_remaining: computeDaysRemaining(assignment.end_date),
           };
         } catch {
-          return {
-            ...assignment,
-            auto_no: 'Unknown',
-            owner_name: 'Unknown',
-            area_id: '',
-            area_name: 'Unknown',
-            days_remaining: computeDaysRemaining(assignment.end_date),
-          };
+          // Return null to filter out assignments with errors
+          return null;
         }
       })
-    );
+    )).filter(item => item !== null);
 
     res.json(enrichedAssignments);
   } catch (error) {
@@ -122,6 +141,9 @@ exports.getCompanyAssignments = async (req, res, next) => {
 
 exports.getCompanyDashboard = async (req, res, next) => {
   try {
+    // Clean up old completed assignments (30+ days old)
+    await deleteOldCompletedAssignments();
+
     const { company_id } = req.params;
 
     const company = await Company.findById(company_id);
@@ -147,52 +169,54 @@ exports.getCompanyDashboard = async (req, res, next) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    // Recalculate display status for each assignment based on TODAY
     for (const assignment of assignments) {
-      const endDate = new Date(assignment.end_date);
-      endDate.setHours(0, 0, 0, 0);
+      const correctStatus = getCorrectAssignmentStatus(assignment.start_date, assignment.end_date);
       
-      // If assignment has ended and isn't marked as COMPLETED, update it
-      if (endDate < today && assignment.status !== 'COMPLETED') {
-        await Assignment.updateStatus(assignment.id, 'COMPLETED');
-        assignment.status = 'COMPLETED';
+      // Update database if status has changed
+      if (correctStatus !== assignment.status) {
+        await Assignment.updateStatus(assignment.id, correctStatus);
+        assignment.status = correctStatus;
       }
     }
     
     // Filter only ACTIVE and PREBOOKED (not COMPLETED)
     const activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
     const prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
+    const completedAssignments = assignments.filter(a => a.status === 'COMPLETED');
 
-    // Enrich ALL assignments with auto details (both ACTIVE and PREBOOKED)
+    // Enrich ALL assignments with auto details (ACTIVE, PREBOOKED, and COMPLETED)
     const enrichAssignments = async (assignmentList) => {
-      return Promise.all(
+      const enriched = await Promise.all(
         assignmentList.map(async (assignment) => {
           try {
             const auto = await Auto.findById(assignment.auto_id);
+            
+            // Skip assignments where auto doesn't exist (deleted auto)
+            if (!auto) {
+              return null;
+            }
+            
             const calculatedDays = calculateDaysBetween(assignment.start_date, assignment.end_date);
             return {
               ...assignment,
-              auto_no: auto?.auto_no || 'Unknown',
-              owner_name: auto?.owner_name || 'Unknown',
-              area_id: auto?.area_id || '',
-              area_name: auto?.area_name || 'Unknown',
+              auto_no: auto.auto_no || 'Unknown',
+              owner_name: auto.owner_name || 'Unknown',
+              area_id: auto.area_id || '',
+              area_name: auto.area_name || 'Unknown',
               days_remaining: computeDaysRemaining(assignment.end_date),
               days: calculatedDays,
             };
           } catch (err) {
             console.error(`[DASHBOARD] Error enriching assignment ${assignment.id}:`, err);
-            const calculatedDays = calculateDaysBetween(assignment.start_date, assignment.end_date);
-            return {
-              ...assignment,
-              auto_no: 'Unknown',
-              owner_name: 'Unknown',
-              area_id: '',
-              area_name: 'Unknown',
-              days_remaining: computeDaysRemaining(assignment.end_date),
-              days: calculatedDays,
-            };
+            // Return null to filter out assignments with errors
+            return null;
           }
         })
       );
+      
+      // Filter out null entries (deleted autos or errors)
+      return enriched.filter(item => item !== null);
     };
 
     // Enrich active assignments with auto details
@@ -200,12 +224,15 @@ exports.getCompanyDashboard = async (req, res, next) => {
     
     // Enrich prebooked assignments with auto details
     const enrichedPrebooked = await enrichAssignments(prebookedAssignments);
+    
+    // Enrich completed assignments with auto details
+    const enrichedCompleted = await enrichAssignments(completedAssignments);
 
     // Get tickets for this company
     const tickets = await CompanyTicket.findByCompanyId(company_id);
     const pendingTickets = tickets.filter(t => t.ticket_status === 'PENDING');
 
-    // Get priority assignments (2 days or less)
+    // Get priority assignments (2 days or less) from enriched data
     const priorityAssignments = enrichedActive.filter(a => a.days_remaining >= 0 && a.days_remaining <= 2);
 
     res.json({
@@ -216,14 +243,16 @@ exports.getCompanyDashboard = async (req, res, next) => {
         status: company.company_status,
       },
       summary: {
-        total_assignments: assignments.length,
-        active_assignments: activeAssignments.length,
-        prebooked_assignments: prebookedAssignments.length,
+        total_assignments: enrichedActive.length + enrichedPrebooked.length,
+        active_assignments: enrichedActive.length,
+        prebooked_assignments: enrichedPrebooked.length,
+        completed_assignments: enrichedCompleted.length,
         priority_count: priorityAssignments.length,
         pending_tickets: pendingTickets.length,
       },
       active_assignments: enrichedActive,
       prebooked_assignments: enrichedPrebooked,
+      completed_assignments: enrichedCompleted,
       priority_assignments: priorityAssignments,
       tickets: tickets,
       pending_tickets: pendingTickets,

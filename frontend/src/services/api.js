@@ -54,6 +54,8 @@ export const areaService = {
   list: () => api.get('/areas'),
   get: (id) => api.get(`/areas/${id}`),
   create: (data) => api.post('/areas', data),
+  update: (id, data) => api.patch(`/areas/${id}`, data),
+  delete: (id, data = {}) => api.delete(`/areas/${id}`, { data }),
 };
 
 export const autoService = {
@@ -108,6 +110,14 @@ export const paymentService = {
   getByStatus: (status) => api.get(`/payments/status/${status}`),
   bulkUpdateStatus: (data) => api.patch('/payments/bulk/update-status', data),
   getAllPayments: () => api.get('/payments/all'),
+};
+
+export const autoMonthlyPaymentService = {
+  create: (data) => api.post('/auto-monthly-payments', data),
+  getAll: () => api.get('/auto-monthly-payments'),
+  getByAuto: (autoId) => api.get(`/auto-monthly-payments/auto/${autoId}`),
+  update: (paymentId, data) => api.patch(`/auto-monthly-payments/${paymentId}`, data),
+  delete: (paymentId) => api.delete(`/auto-monthly-payments/${paymentId}`),
 };
 
 export const companyPortalService = {

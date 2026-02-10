@@ -61,6 +61,10 @@ const DashboardPage = () => {
 
     if (isAuthenticated) {
       fetchData();
+
+      // Set up auto-refresh every 10 seconds to catch deleted assignments
+      const intervalId = setInterval(fetchData, 10000);
+      return () => clearInterval(intervalId);
     }
   }, [isAuthenticated, admin, expandedList]);
 

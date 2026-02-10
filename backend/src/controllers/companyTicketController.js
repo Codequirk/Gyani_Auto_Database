@@ -162,31 +162,50 @@ exports.approveTicket = async (req, res, next) => {
 
       // Create assignments for each auto
       const assignments = [];
-      const { getDateNDaysFromNow } = require('../utils/dateUtils');
+      const { getDateNDaysFromNow, calculateTotalDays } = require('../utils/dateUtils');
       const Payment = require('../models/Payment');
       
       for (const autoId of assignmentAutos) {
+        // Calculate end date: if 1 day is required, end date = start date (so add 0 days)
+        // If 5 days required, add 4 days to start date (days 1,2,3,4,5)
         const endDate = getDateNDaysFromNow(ticket.days_required - 1, ticket.start_date);
+        const totalDays = calculateTotalDays(ticket.start_date, endDate);
         
-        console.log(`[APPROVAL] Creating assignment for auto ${autoId}, dates: ${ticket.start_date} to ${endDate}`);
+        // Determine assignment status based on start_date
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const ticketStart = new Date(ticket.start_date);
+        ticketStart.setHours(0, 0, 0, 0);
+        const assignmentStatus = ticketStart > today ? 'PREBOOKED' : 'ACTIVE';
+        
+        console.log(`[APPROVAL] Creating assignment for auto ${autoId}, dates: ${ticket.start_date} to ${endDate}, days: ${totalDays}, status: ${assignmentStatus}`);
         
         const assignment = await Assignment.create({
           auto_id: autoId,
           company_id: ticket.company_id,
           start_date: ticket.start_date,
           end_date: endDate,
-          status: new Date(ticket.start_date) > new Date() ? 'PREBOOKED' : 'ACTIVE',
+          days: totalDays,
+          status: assignmentStatus,
         });
         
         console.log(`[APPROVAL] Assignment created:`, assignment.id);
         assignments.push(assignment);
+
+        // Update auto status after creating assignment
+        try {
+          await Auto.recalculateAndUpdateStatus(autoId);
+          console.log(`[APPROVAL] Auto status recalculated for auto ${autoId}`);
+        } catch (statusError) {
+          console.error(`[APPROVAL] Warning: Failed to recalculate auto status for ${autoId}:`, statusError.message);
+          // Don't throw - continue with other operations
+        }
 
         // Create payment record if cost_per_day is provided
         if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
           try {
             const auto = await Auto.findById(autoId);
             if (auto) {
-              const totalDays = ticket.days_required;
               // Get area name if not present
               let areaName = auto.area_name || '';
               if (!areaName && auto.area_id) {
@@ -207,7 +226,7 @@ exports.approveTicket = async (req, res, next) => {
                 total_cost: parseFloat(cost_per_day) * totalDays,
                 payment_status: 'PENDING'
               });
-              console.log(`[APPROVAL] Payment record created for auto ${autoId}`);
+              console.log(`[APPROVAL] Payment record created for auto ${autoId} with ${totalDays} days`);
             }
           } catch (paymentError) {
             console.error(`[APPROVAL] Warning: Payment creation failed for auto ${autoId}:`, paymentError.message);
@@ -301,106 +320,154 @@ exports.updateTicket = async (req, res, next) => {
     next(error);
   }
 };
+
 /**
- * Suggest autos for a ticket based on:
- * 1. Priority: Idle autos first, then autos that are free on the requested dates
- * 2. Return metadata showing auto type (Idle vs Active)
+ * GET /tickets/:id/available-autos
+ * 
+ * Fetch available autos for a ticket with deterministic sorting.
+ * 
+ * BACKEND OWNS ALL LOGIC:
+ * - Filtering by area
+ * - Excluding overlapping assignments
+ * - Calculating display_status
+ * - Sorting by priority (IDLE > ACTIVE > PREBOOKED) + auto_no
+ * 
+ * FRONTEND RECEIVES: Sorted array only, NO mutations allowed
  */
-exports.suggestAutosForTicket = async (req, res, next) => {
+exports.getAvailableAutosForTicket = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    // Get ticket
     const ticket = await CompanyTicket.findById(id);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
-    // Get all autos in the requested area (or all autos if no area specified)
+    console.log(`\n[AUTO-SUGGEST] Fetching autos for ticket ${id}`);
+    console.log(`  Ticket area_id: ${ticket.area_id || 'Any Area'}`);
+    console.log(`  Request dates: ${ticket.start_date} to ${new Date(new Date(ticket.start_date).getTime() + (ticket.days_required - 1) * 86400000)}`);
+
+    // ===== STEP 1: Fetch autos from database =====
     const filterCriteria = {};
     if (ticket.area_id) {
       filterCriteria.area_id = ticket.area_id;
     }
-    
     const allAutos = await Auto.findAll(filterCriteria);
+    console.log(`  Found ${allAutos.length} autos in area`);
+
+    // ===== STEP 2: Fetch all assignments to check overlaps =====
+    const allAssignments = await Assignment.findAll();
+    console.log(`  Total assignments in DB: ${allAssignments.length}`);
+
+    // ===== STEP 3: Filter autos - exclude those with overlapping assignments =====
+    const ticketStartDate = new Date(ticket.start_date);
+    ticketStartDate.setHours(0, 0, 0, 0);
     
-    // Convert dates to comparable format
-    const startDate = new Date(ticket.start_date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + ticket.days_required - 1);
+    const ticketEndDate = new Date(ticketStartDate);
+    ticketEndDate.setDate(ticketEndDate.getDate() + (ticket.days_required - 1));
+    ticketEndDate.setHours(23, 59, 59, 999);
 
-    // Categorize autos into IDLE and ACTIVE (free on dates)
-    const idleAutos = [];
-    const assignableAutos = [];
+    console.log(`  Ticket date range: ${ticketStartDate.toISOString()} to ${ticketEndDate.toISOString()}`);
 
-    for (const auto of allAutos) {
-      // Get all assignments for this auto
-      const assignments = await Assignment.findByAutoId(auto.id);
-      
-      // Check if auto has any active or prebooked assignments that overlap with requested dates
-      const hasConflict = assignments.some(assignment => {
+    const availableAutos = allAutos.filter(auto => {
+      // Check if this auto has any ACTIVE or PREBOOKED assignments overlapping with ticket dates
+      const hasConflict = allAssignments.some(assignment => {
+        if (assignment.auto_id !== auto.id) return false;
+        if (!['ACTIVE', 'PREBOOKED'].includes(assignment.status)) return false;
+
         const assignStart = new Date(assignment.start_date);
-        const assignEnd = new Date(assignment.end_date);
         assignStart.setHours(0, 0, 0, 0);
-        assignEnd.setHours(23, 59, 59, 999);
         
-        // Check if date ranges overlap
-        return !(endDate < assignStart || startDate > assignEnd);
+        const assignEnd = new Date(assignment.end_date);
+        assignEnd.setHours(23, 59, 59, 999);
+
+        // Check for overlap
+        const overlaps = !(ticketEndDate < assignStart || ticketStartDate > assignEnd);
+        return overlaps;
       });
 
-      if (hasConflict) {
-        // Auto has conflicting assignment, skip it
-        continue;
-      }
-
-      if (assignments.length === 0) {
-        // Auto has no assignments at all - it's IDLE
-        idleAutos.push({
-          ...auto,
-          type: 'IDLE',
-          availability: 'Never been assigned',
-        });
-      } else {
-        // Auto has assignments but none conflict with requested dates - it's ASSIGNABLE
-        assignableAutos.push({
-          ...auto,
-          type: 'ACTIVE',
-          availability: `Can be assigned on ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`,
-        });
-      }
-    }
-
-    // Combine: IDLE first, then ACTIVE
-    const suggestedAutos = [...idleAutos, ...assignableAutos];
-
-    // Select the required number of autos
-    const selectedAutos = suggestedAutos.slice(0, ticket.autos_required);
-    const selectedAutoIds = selectedAutos.map(auto => auto.id);
-
-    // Count by type
-    const idleCount = selectedAutos.filter(a => a.type === 'IDLE').length;
-    const activeCount = selectedAutos.filter(a => a.type === 'ACTIVE').length;
-
-    console.log(`[SUGGEST] Ticket ${id}: Selected ${selectedAutoIds.length} autos (${idleCount} idle, ${activeCount} active)`);
-
-    res.json({
-      ticket_id: id,
-      autos_required: ticket.autos_required,
-      suggested_autos: selectedAutos,
-      suggested_auto_ids: selectedAutoIds,
-      summary: {
-        total_suggested: selectedAutos.length,
-        idle_count: idleCount,
-        active_count: activeCount,
-        available_total: suggestedAutos.length,
-      },
-      dates: {
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
-      },
+      return !hasConflict;
     });
+
+    console.log(`  Available autos (no conflicts): ${availableAutos.length}`);
+
+    // ===== STEP 4: Calculate display_status for each auto =====
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const autosWithStatus = availableAutos.map(auto => {
+      // Find all ACTIVE or PREBOOKED assignments for this auto
+      const relevantAssignments = allAssignments.filter(a => 
+        a.auto_id === auto.id && ['ACTIVE', 'PREBOOKED'].includes(a.status)
+      );
+
+      // Calculate display_status based on TODAY
+      let display_status = 'IDLE'; // Default if no assignments
+      
+      for (const assignment of relevantAssignments) {
+        const assignStart = new Date(assignment.start_date);
+        assignStart.setHours(0, 0, 0, 0);
+        
+        const assignEnd = new Date(assignment.end_date);
+        assignEnd.setHours(0, 0, 0, 0);
+
+        // Check if today falls within this assignment
+        if (today >= assignStart && today <= assignEnd) {
+          display_status = 'ACTIVE';
+          break; // ACTIVE takes priority
+        }
+        // Check if assignment starts in future
+        else if (today < assignStart) {
+          if (display_status !== 'ACTIVE') {
+            display_status = 'PREBOOKED'; // Only set if not already ACTIVE
+          }
+        }
+      }
+
+      return {
+        ...auto,
+        display_status,
+      };
+    });
+
+    console.log(`  Display statuses calculated for ${autosWithStatus.length} autos`);
+
+    // ===== STEP 5: Sort by priority (IDLE > ACTIVE > PREBOOKED) + secondary by auto_no =====
+    const statusPriority = { 'IDLE': 0, 'ACTIVE': 1, 'PREBOOKED': 2 };
+
+    const sortedAutos = autosWithStatus.sort((a, b) => {
+      // Primary: display_status priority
+      const statusDiff = statusPriority[a.display_status] - statusPriority[b.display_status];
+      if (statusDiff !== 0) return statusDiff;
+
+      // Secondary: auto_no alphabetically (stable)
+      return (a.auto_no || '').localeCompare(b.auto_no || '');
+    });
+
+    console.log(`  ✓ Sorted autos:`);
+    sortedAutos.forEach((auto, idx) => {
+      console.log(`    [${idx}] ${auto.auto_no} - ${auto.display_status} (${auto.owner_name})`);
+    });
+
+    // ===== STEP 6: Count by status for metadata =====
+    const metadata = {
+      idle: sortedAutos.filter(a => a.display_status === 'IDLE').length,
+      active: sortedAutos.filter(a => a.display_status === 'ACTIVE').length,
+      prebooked: sortedAutos.filter(a => a.display_status === 'PREBOOKED').length,
+    };
+
+    console.log(`  Metadata: IDLE=${metadata.idle}, ACTIVE=${metadata.active}, PREBOOKED=${metadata.prebooked}`);
+    console.log(`[AUTO-SUGGEST] ✓ Response ready with ${sortedAutos.length} autos\n`);
+
+    // ===== RETURN: Single sorted array + metadata =====
+    res.json({
+      available_autos: sortedAutos,
+      meta: metadata,
+    });
+
   } catch (error) {
-    console.error('[SUGGEST] Error suggesting autos:', error);
+    console.error('[AUTO-SUGGEST] Error:', error);
     next(error);
   }
 };
