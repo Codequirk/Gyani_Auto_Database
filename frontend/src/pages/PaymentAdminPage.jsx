@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { paymentService, autoMonthlyPaymentService, companyService, autoService, areaService } from '../services/api';
 import Navbar from '../components/Navbar';
 import { Card, Button, Badge } from '../components/UI';
-import { formatDate } from '../utils/helpers';
+import { formatDate, formatDaysRemaining } from '../utils/helpers';
 
 export default function PaymentAdminPage() {
   const [paymentData, setPaymentData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [viewMode, setViewMode] = useState('companies');
   const [selectedArea, setSelectedArea] = useState('all');
@@ -20,12 +21,6 @@ export default function PaymentAdminPage() {
   const [openMenuKey, setOpenMenuKey] = useState(null);
   const [paymentType, setPaymentType] = useState('COMPANY');
   const [autoPayments, setAutoPayments] = useState([]);
-  const [activeAutos, setActiveAutos] = useState([]);
-  const [selectedAutosForPayment, setSelectedAutosForPayment] = useState(new Set());
-  const [showBulkPaymentModal, setShowBulkPaymentModal] = useState(false);
-  const [bulkPaymentData, setBulkPaymentData] = useState({ start_date: '', monthly_cost: '', advance_payment: '' });
-  const [bulkPaymentLoading, setBulkPaymentLoading] = useState(false);
-  const [snapshotSelectedAutos, setSnapshotSelectedAutos] = useState(new Set());
   const [autoSearch, setAutoSearch] = useState('');
   const [autoAreaFilter, setAutoAreaFilter] = useState('');
   const [areas, setAreas] = useState([]);
@@ -35,6 +30,11 @@ export default function PaymentAdminPage() {
   const [editPaymentLoading, setEditPaymentLoading] = useState(false);
   const [showAutoPaymentDetailsModal, setShowAutoPaymentDetailsModal] = useState(false);
   const [selectedAutoPaymentDetails, setSelectedAutoPaymentDetails] = useState(null);
+  const [detailsModalSource, setDetailsModalSource] = useState(''); // 'dueSoon' or 'allPayments'
+  const [isRenewalMode, setIsRenewalMode] = useState(false);
+  const [renewalData, setRenewalData] = useState({});
+  const [renewalLoading, setRenewalLoading] = useState(false);
+  const [editingRenewalDates, setEditingRenewalDates] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const debounceTimer = useRef(null);
   const [debouncedAutoSearch, setDebouncedAutoSearch] = useState('');
@@ -154,10 +154,9 @@ export default function PaymentAdminPage() {
       try {
         const autosResponse = await autoService.list();
         const autos = autosResponse.data || [];
-        setActiveAutos(autos);
+        // activeAutos no longer needed since bulk payment feature was removed
       } catch (err) {
         console.error('Error fetching autos:', err);
-        setActiveAutos([]);
       }
 
       try {
@@ -247,102 +246,6 @@ export default function PaymentAdminPage() {
     });
   };
 
-  const handleBulkPayment = async (e) => {
-    e.preventDefault();
-    console.log('📤 BULK PAYMENT FORM SUBMITTED');
-    
-    if (!bulkPaymentData.start_date || !bulkPaymentData.monthly_cost) {
-      console.log('❌ Missing date or cost');
-      setError('Start date and monthly cost are required');
-      return;
-    }
-
-    if (snapshotSelectedAutos.size === 0) {
-      console.log('❌ No autos selected');
-      setError('Please select at least one auto');
-      return;
-    }
-
-    setBulkPaymentLoading(true);
-    setError('');
-
-    try {
-      // BUSINESS RULE: Assignment duration = 30 calendar days INCLUDING the start date
-      // Do NOT mutate the start date during this process
-      const startDate = bulkPaymentData.start_date;
-      const advancePayment = bulkPaymentData.advance_payment || 0;
-      
-      // Calculate end date: start_date + 29 days = 30-day billing cycle
-      // This is derived ONLY from the start date, never recalculated during save
-      const endDateString = calculateEndDate(startDate);
-
-      const selectedAutoIds = Array.from(snapshotSelectedAutos);
-      const selectedAutosData = activeAutos.filter(a => selectedAutoIds.includes(a.id));
-
-      console.log('📝 Creating payments for autos:', selectedAutosData.map(a => a.auto_no));
-      console.log('✅ Start Date (selected):', startDate, '| End Date (calculated):', endDateString);
-      console.log('💰 Advance Payment:', advancePayment);
-
-      let successCount = 0;
-      let failureCount = 0;
-      const errors = [];
-
-      // Send dates as pure YYYY-MM-DD strings (DATE-ONLY, no timezone conversion)
-      // Backend MUST receive and store as SQL DATE, not TIMESTAMP
-      const startDateForBackend = formatDateForBackend(startDate);
-      const endDateForBackend = formatDateForBackend(endDateString);
-
-      console.log('📤 Sending dates (DATE-ONLY) - Start:', startDateForBackend, 'End:', endDateForBackend);
-
-      for (const auto of selectedAutosData) {
-        try {
-          const paymentData = {
-            auto_id: auto.id,
-            company_id: auto.company_id || null,
-            monthly_cost: parseFloat(bulkPaymentData.monthly_cost),
-            advance_payment: advancePayment ? parseFloat(advancePayment) : 0, // NEW: Apply same advance payment to each auto
-            start_date: startDateForBackend,
-            end_date: endDateForBackend,
-            notes: `Bulk payment created for ${selectedAutoIds.length} auto(s)`,
-          };
-
-          if (auto.assignment_id) {
-            paymentData.assignment_id = auto.assignment_id;
-          }
-
-          console.log(`📤 Sending payment for auto ${auto.auto_no}:`, paymentData);
-          await autoMonthlyPaymentService.create(paymentData);
-          console.log(`✅ Payment created for auto ${auto.auto_no}`);
-          successCount++;
-        } catch (err) {
-          console.error(`❌ Failed to create payment for auto ${auto.auto_no}:`, err);
-          errors.push(`${auto.auto_no}: ${err.response?.data?.error || err.message}`);
-          failureCount++;
-        }
-      }
-
-      if (failureCount === 0) {
-        setError('');
-        console.log(`✅ All ${successCount} payments created successfully!`);
-        alert(`✓ Successfully created ${successCount} payment(s)`);
-      } else {
-        setError(`Created ${successCount} payment(s), failed ${failureCount}. Errors: ${errors.join('; ')}`);
-      }
-      
-      setSelectedAutosForPayment(new Set());
-      setSnapshotSelectedAutos(new Set());
-      setShowBulkPaymentModal(false);
-      setBulkPaymentData({ start_date: '', monthly_cost: '', advance_payment: '' });
-      
-      await fetchPaymentData();
-    } catch (err) {
-      console.error('❌ Bulk payment error:', err);
-      setError(err.response?.data?.error || 'Failed to create bulk payment');
-    } finally {
-      setBulkPaymentLoading(false);
-    }
-  };
-
   const handleEditAutoPayment = (payment) => {
     setEditingPayment(payment);
     // Extract just the date part (YYYY-MM-DD) without time
@@ -369,6 +272,8 @@ export default function PaymentAdminPage() {
 
     try {
       setEditPaymentLoading(true);
+      setError('');
+      setSuccess('');
       
       // BUSINESS RULE: End date is derived ONLY from the start date
       // Recalculate end_date based on the new start_date (if changed)
@@ -386,32 +291,119 @@ export default function PaymentAdminPage() {
         notes: editPaymentData.notes,
       });
 
-      setAutoPayments(autoPayments.map(p => 
+      // Update the state with the new values
+      const updatedPayments = autoPayments.map(p => 
         p.id === editingPayment.id 
           ? { 
               ...p, 
-              monthly_cost: editPaymentData.monthly_cost,
-              advance_payment: editPaymentData.advance_payment,
+              monthly_cost: parseFloat(editPaymentData.monthly_cost),
+              advance_payment: editPaymentData.advance_payment ? parseFloat(editPaymentData.advance_payment) : 0,
               start_date: startDateForBackend,
               end_date: endDateForBackend,
               notes: editPaymentData.notes
             }
           : p
-      ));
-
-      setShowEditPaymentModal(false);
-      setEditingPayment(null);
-      setEditPaymentData({});
+      );
+      
+      setAutoPayments(updatedPayments);
+      setSuccess('Payment updated successfully!');
+      
+      // Auto-close modal after 1.5 seconds
+      setTimeout(() => {
+        setShowEditPaymentModal(false);
+        setEditingPayment(null);
+        setEditPaymentData({});
+        setSuccess('');
+      }, 1500);
     } catch (err) {
+      console.error('Error updating payment:', err);
       setError(err.response?.data?.error || 'Failed to update payment');
     } finally {
       setEditPaymentLoading(false);
     }
   };
 
-  const handleViewAutoPaymentDetails = (payment) => {
+  const handleViewAutoPaymentDetails = (payment, source = 'allPayments') => {
     setSelectedAutoPaymentDetails(payment);
+    setDetailsModalSource(source);
+    setIsRenewalMode(false);
+    setRenewalData({});
     setShowAutoPaymentDetailsModal(true);
+  };
+
+  const handleRenewal = () => {
+    // Calculate new cycle dates
+    const currentEndDate = parseLocalDate(selectedAutoPaymentDetails.end_date.split('T')[0]);
+    const newStartDate = new Date(currentEndDate);
+    newStartDate.setDate(newStartDate.getDate() + 1);
+
+    const newEndDate = new Date(newStartDate);
+    newEndDate.setDate(newEndDate.getDate() + 29);
+
+    // Initialize renewal data
+    setIsRenewalMode(true);
+    setEditingRenewalDates(false);
+    setRenewalData({
+      monthly_cost: selectedAutoPaymentDetails.monthly_cost,
+      advance_payment: selectedAutoPaymentDetails.advance_payment || 0,
+      renewal_start_date: `${newStartDate.getFullYear()}-${String(newStartDate.getMonth() + 1).padStart(2, '0')}-${String(newStartDate.getDate()).padStart(2, '0')}`,
+      renewal_end_date: `${newEndDate.getFullYear()}-${String(newEndDate.getMonth() + 1).padStart(2, '0')}-${String(newEndDate.getDate()).padStart(2, '0')}`,
+    });
+  };
+
+  const handleSaveRenewal = async (e) => {
+    e.preventDefault();
+
+    if (!renewalData.monthly_cost) {
+      setError('Monthly cost is required');
+      return;
+    }
+
+    try {
+      setRenewalLoading(true);
+      setError('');
+
+      // Use the dates from renewalData (which may have been edited)
+      const startDateForBackend = formatDateForBackend(renewalData.renewal_start_date);
+      const endDateForBackend = formatDateForBackend(renewalData.renewal_end_date);
+
+      await autoMonthlyPaymentService.update(selectedAutoPaymentDetails.id, {
+        monthly_cost: parseFloat(renewalData.monthly_cost),
+        advance_payment: renewalData.advance_payment ? parseFloat(renewalData.advance_payment) : 0,
+        start_date: startDateForBackend,
+        end_date: endDateForBackend,
+        notes: selectedAutoPaymentDetails.notes,
+      });
+
+      // Update the state
+      const updatedPayments = autoPayments.map(p =>
+        p.id === selectedAutoPaymentDetails.id
+          ? {
+              ...p,
+              monthly_cost: parseFloat(renewalData.monthly_cost),
+              advance_payment: renewalData.advance_payment ? parseFloat(renewalData.advance_payment) : 0,
+              start_date: startDateForBackend,
+              end_date: endDateForBackend,
+            }
+          : p
+      );
+
+      setAutoPayments(updatedPayments);
+      setSuccess('Payment renewed successfully!');
+
+      setTimeout(() => {
+        setShowAutoPaymentDetailsModal(false);
+        setSelectedAutoPaymentDetails(null);
+        setIsRenewalMode(false);
+        setRenewalData({});
+        setSuccess('');
+      }, 1500);
+    } catch (err) {
+      console.error('Error renewing payment:', err);
+      setError(err.response?.data?.error || 'Failed to renew payment');
+    } finally {
+      setRenewalLoading(false);
+    }
   };
 
   const handleEditAuto = (auto) => {
@@ -984,6 +976,12 @@ export default function PaymentAdminPage() {
             </div>
           )}
 
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
+              {success}
+            </div>
+          )}
+
           <div className="mb-6 flex gap-3">
             <button
               onClick={() => setPaymentType('COMPANY')}
@@ -1115,7 +1113,7 @@ export default function PaymentAdminPage() {
                     // Separate into 3 sections
                     const overduePayments = paymentsWithDays.filter(p => p.daysRemaining === 0);
                     const dueSoonPayments = paymentsWithDays.filter(p => p.daysRemaining > 0 && p.daysRemaining <= 7).sort((a, b) => a.daysRemaining - b.daysRemaining);
-                    const allAssignedPayments = paymentsWithDays.sort((a, b) => {
+                    let allAssignedPayments = paymentsWithDays.sort((a, b) => {
                       if (a.daysRemaining === 0 && b.daysRemaining !== 0) return -1;
                       if (a.daysRemaining !== 0 && b.daysRemaining === 0) return 1;
                       if (a.daysRemaining <= 7 && b.daysRemaining > 7) return -1;
@@ -1123,7 +1121,24 @@ export default function PaymentAdminPage() {
                       return a.daysRemaining - b.daysRemaining;
                     });
 
-                    const renderPaymentTable = (payments, title, bgColor, headerBg) => (
+                    // Apply filters to allAssignedPayments
+                    if (autoSearch.trim()) {
+                      const searchLower = autoSearch.toLowerCase();
+                      allAssignedPayments = allAssignedPayments.filter(p => 
+                        (p.auto_no && p.auto_no.toLowerCase().includes(searchLower)) ||
+                        (p.owner_name && p.owner_name.toLowerCase().includes(searchLower))
+                      );
+                    }
+                    if (autoAreaFilter) {
+                      // Get the selected area name
+                      const selectedArea = areas.find(a => a.id === autoAreaFilter);
+                      const selectedAreaName = selectedArea?.name;
+                      if (selectedAreaName) {
+                        allAssignedPayments = allAssignedPayments.filter(p => p.area_name === selectedAreaName);
+                      }
+                    }
+
+                    const renderPaymentTable = (payments, title, bgColor, headerBg, showEditButton = true, onDoubleClickAction = 'details', tableSource = 'allPayments') => (
                       <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
                         <div className={`${bgColor} text-white px-6 py-4`}>
                           <div className="flex justify-between items-center">
@@ -1142,6 +1157,7 @@ export default function PaymentAdminPage() {
                             <thead className={`${headerBg} border-b`}>
                               <tr>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Auto No.</th>
+                                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Owner Name</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Area</th>
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Monthly Cost</th>
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Advance Paid</th>
@@ -1149,68 +1165,83 @@ export default function PaymentAdminPage() {
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Start Date</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">End Date</th>
                                 <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Days Remaining</th>
-                                <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Actions</th>
+                                {showEditButton && <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Actions</th>}
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {payments.map((payment) => (
-                                <tr key={payment.id} className="hover:bg-gray-50 cursor-pointer" onDoubleClick={() => handleViewAutoPaymentDetails(payment)}>
-                                  <td className="px-6 py-4 text-sm font-semibold text-gray-900">
-                                    {payment.auto_no || 'N/A'}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-gray-700">
-                                    {payment.area_name || 'N/A'}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-right font-semibold text-green-600">
-                                    ₹{(payment.monthly_cost || 0).toLocaleString('en-IN')}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-right font-semibold text-blue-600">
-                                    ₹{(payment.advance_payment || 0).toLocaleString('en-IN')}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-right font-semibold text-orange-600">
-                                    ₹{((payment.monthly_cost || 0) - (payment.advance_payment || 0)).toLocaleString('en-IN')}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-gray-700">
-                                    {parseLocalDate(payment.start_date.split('T')[0]).toLocaleDateString('en-IN')}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-gray-700">
-                                    {parseLocalDate(payment.end_date.split('T')[0]).toLocaleDateString('en-IN')}
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-center">
-                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
-                                      payment.daysRemaining === 0 ? 'bg-red-100 text-red-800' :
-                                      payment.daysRemaining <= 7 ? 'bg-yellow-100 text-yellow-800' :
-                                      'bg-green-100 text-green-800'
-                                    }`}>
-                                      {payment.daysRemaining} day{payment.daysRemaining !== 1 ? 's' : ''}
-                                    </span>
-                                  </td>
-                                  <td className="px-6 py-4 text-sm text-center">
-                                    <div className="relative">
-                                      <button
-                                        onClick={() => setOpenMenuId(openMenuId === payment.id ? null : payment.id)}
-                                        className="p-1 hover:bg-gray-100 rounded text-gray-600 hover:text-gray-900"
-                                        title="Actions"
-                                      >
-                                        ⋮
-                                      </button>
-                                      {openMenuId === payment.id && (
-                                        <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
+                              {payments.map((payment) => {
+                                const handleRowDoubleClick = () => {
+                                  if (onDoubleClickAction === 'edit') {
+                                    handleEditAutoPayment(payment);
+                                  } else {
+                                    handleViewAutoPaymentDetails(payment, tableSource);
+                                  }
+                                };
+
+                                return (
+                                  <tr key={payment.id} className="hover:bg-gray-50 cursor-pointer" onDoubleClick={handleRowDoubleClick}>
+                                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                                      {payment.auto_no || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-700">
+                                      {payment.owner_name || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-700">
+                                      {payment.area_name || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-right font-semibold text-green-600">
+                                      ₹{(payment.monthly_cost || 0).toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-right font-semibold text-blue-600">
+                                      ₹{(payment.advance_payment || 0).toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-right font-semibold text-orange-600">
+                                      ₹{((payment.monthly_cost || 0) - (payment.advance_payment || 0)).toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-700">
+                                      {parseLocalDate(payment.start_date.split('T')[0]).toLocaleDateString('en-IN')}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-700">
+                                      {parseLocalDate(payment.end_date.split('T')[0]).toLocaleDateString('en-IN')}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-center">
+                                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap ${
+                                        payment.daysRemaining === 0 ? 'bg-red-100 text-red-800' :
+                                        payment.daysRemaining <= 7 ? 'bg-yellow-100 text-yellow-800' :
+                                        'bg-green-100 text-green-800'
+                                      }`}>
+                                        {formatDaysRemaining(payment.daysRemaining)}
+                                      </span>
+                                    </td>
+                                    {showEditButton && (
+                                      <td className="px-6 py-4 text-sm text-center">
+                                        <div className="relative">
                                           <button
-                                            onClick={() => {
-                                              handleEditAutoPayment(payment);
-                                              setOpenMenuId(null);
-                                            }}
-                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                            onClick={() => setOpenMenuId(openMenuId === payment.id ? null : payment.id)}
+                                            className="p-1 hover:bg-gray-100 rounded text-gray-600 hover:text-gray-900"
+                                            title="Actions"
                                           >
-                                            Edit
+                                            ⋮
                                           </button>
+                                          {openMenuId === payment.id && (
+                                            <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
+                                              <button
+                                                onClick={() => {
+                                                  handleEditAutoPayment(payment);
+                                                  setOpenMenuId(null);
+                                                }}
+                                                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                              >
+                                                Edit
+                                              </button>
+                                            </div>
+                                          )}
                                         </div>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         )}
@@ -1219,287 +1250,52 @@ export default function PaymentAdminPage() {
 
                     return (
                       <>
-                        {renderPaymentTable(overduePayments, '🚨 Payment Overdue', 'bg-red-600', 'bg-red-100')}
-                        {renderPaymentTable(dueSoonPayments, '⚠️ Payment Due Soon (1-7 Days)', 'bg-yellow-600', 'bg-yellow-100')}
-                        {renderPaymentTable(allAssignedPayments, '📋 All Assigned Payments', 'bg-blue-600', 'bg-blue-100')}
+                        {renderPaymentTable(overduePayments, '🚨 Payment Overdue', 'bg-red-600', 'bg-red-100', false, 'edit', 'overdue')}
+                        {renderPaymentTable(dueSoonPayments, '⚠️ Payment Due Soon (1-7 Days)', 'bg-yellow-600', 'bg-yellow-100', true, 'details', 'dueSoon')}
+                        
+                        {/* Filters for All Assigned Payments */}
+                        <div className="mb-6 bg-white rounded-lg shadow p-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Search Auto
+                              </label>
+                              <input
+                                type="text"
+                                value={autoSearch}
+                                onChange={(e) => setAutoSearch(e.target.value)}
+                                placeholder="Search by auto no or owner..."
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Filter by Area
+                              </label>
+                              <select
+                                value={autoAreaFilter}
+                                onChange={(e) => setAutoAreaFilter(e.target.value)}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              >
+                                <option value="">All Areas</option>
+                                {areas.map((area) => (
+                                  <option key={area.id} value={area.id}>
+                                    {area.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {renderPaymentTable(allAssignedPayments, '📋 All Assigned Payments', 'bg-blue-600', 'bg-blue-100', true, 'details', 'allPayments')}
                       </>
                     );
                   })()}
                 </>
               )}
-
-              <div className="mb-6 bg-white rounded-lg shadow p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">All Autos</h2>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Search Auto
-                    </label>
-                    <input
-                      type="text"
-                      value={autoSearch}
-                      onChange={(e) => setAutoSearch(e.target.value)}
-                      placeholder="Search by auto no or owner..."
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Filter by Area
-                    </label>
-                    <select
-                      value={autoAreaFilter}
-                      onChange={(e) => setAutoAreaFilter(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">All Areas</option>
-                      {areas.map((area) => (
-                        <option key={area.id} value={area.id}>
-                          {area.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Refresh
-                    </label>
-                    <button
-                      onClick={fetchPaymentData}
-                      className="w-full px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-medium"
-                    >
-                      🔄 Refresh
-                    </button>
-                  </div>
-                </div>
-
-                {getFilteredAutos().length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-600">No autos found</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="mb-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <p className="text-sm font-medium text-gray-700">
-                          {selectedAutosForPayment.size} auto(s) selected
-                        </p>
-                        <button
-                          onClick={() => {
-                            if (selectedAutosForPayment.size === getFilteredAutos().length) {
-                              setSelectedAutosForPayment(new Set());
-                            } else {
-                              setSelectedAutosForPayment(new Set(getFilteredAutos().map(a => a.id)));
-                            }
-                          }}
-                          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          {selectedAutosForPayment.size === getFilteredAutos().length ? 'Deselect All' : 'Select All'}
-                        </button>
-                      </div>
-
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="px-4 py-2 text-left">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedAutosForPayment.size === getFilteredAutos().length && getFilteredAutos().length > 0}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedAutosForPayment(new Set(getFilteredAutos().map(a => a.id)));
-                                    } else {
-                                      setSelectedAutosForPayment(new Set());
-                                    }
-                                  }}
-                                />
-                              </th>
-                              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Auto No</th>
-                              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Owner</th>
-                              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Area</th>
-                              <th className="px-6 py-3 text-center text-sm font-semibold text-gray-900">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {getFilteredAutos().map((auto) => (
-                              <tr key={auto.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedAutosForPayment.has(auto.id)}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(selectedAutosForPayment);
-                                      if (e.target.checked) {
-                                        newSelected.add(auto.id);
-                                      } else {
-                                        newSelected.delete(auto.id);
-                                      }
-                                      setSelectedAutosForPayment(newSelected);
-                                    }}
-                                  />
-                                </td>
-                                <td className="px-6 py-3 text-sm font-semibold text-gray-900 cursor-pointer hover:text-blue-600" onDoubleClick={() => handleEditAuto(auto)}>
-                                  {auto.auto_no}
-                                </td>
-                                <td className="px-6 py-3 text-sm text-gray-700">
-                                  {auto.owner_name || 'N/A'}
-                                </td>
-                                <td className="px-6 py-3 text-sm text-gray-700">
-                                  {auto.area_name || 'N/A'}
-                                </td>
-                                <td className="px-6 py-3 text-sm text-center">
-                                  <div className="relative">
-                                    <button
-                                      onClick={() => setOpenMenuId(openMenuId === auto.id ? null : auto.id)}
-                                      className="p-1 hover:bg-gray-100 rounded text-gray-600 hover:text-gray-900"
-                                      title="Actions"
-                                    >
-                                      ⋮
-                                    </button>
-                                    {openMenuId === auto.id && (
-                                      <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
-                                        <button
-                                          onClick={() => {
-                                            handleEditAuto(auto);
-                                            setOpenMenuId(null);
-                                          }}
-                                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-b border-gray-100"
-                                        >
-                                          Edit
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {selectedAutosForPayment.size > 0 && (
-                      <button
-                        onClick={() => {
-                          console.log('🔵 BULK PAYMENT BUTTON CLICKED');
-                          console.log('Selected autos count:', selectedAutosForPayment.size);
-                          console.log('Selected autos:', Array.from(selectedAutosForPayment));
-                          setSnapshotSelectedAutos(new Set(selectedAutosForPayment));
-                          setBulkPaymentData({ start_date: '', monthly_cost: '' });
-                          setShowBulkPaymentModal(true);
-                        }}
-                        className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition mt-4"
-                      >
-                        ➕ Create Bulk Payment for {selectedAutosForPayment.size} Auto(s)
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
             </>
-          )}
-
-          {/* ===== BULK PAYMENT MODAL ===== */}
-          {showBulkPaymentModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-              <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full my-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Create Bulk Payment</h2>
-                
-                {error && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                    {error}
-                  </div>
-                )}
-
-                <form onSubmit={handleBulkPayment} className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Start Date *</label>
-                    <input
-                      type="date"
-                      required
-                      value={bulkPaymentData.start_date}
-                      onChange={(e) => setBulkPaymentData({ ...bulkPaymentData, start_date: e.target.value })}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Monthly Cost (₹) *</label>
-                    <input
-                      type="number"
-                      required
-                      step="0.01"
-                      min="0"
-                      value={bulkPaymentData.monthly_cost}
-                      onChange={(e) => setBulkPaymentData({ ...bulkPaymentData, monthly_cost: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      placeholder="Cost"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Advance Payment (₹)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={bulkPaymentData.advance_payment}
-                      onChange={(e) => setBulkPaymentData({ ...bulkPaymentData, advance_payment: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      placeholder="Optional"
-                    />
-                  </div>
-
-                  <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-700">
-                    <p className="font-semibold">End Date:</p>
-                    <p>
-                      {bulkPaymentData.start_date
-                        ? parseLocalDate(calculateEndDate(bulkPaymentData.start_date)).toLocaleDateString('en-IN')
-                        : 'Select start date'}
-                    </p>
-                  </div>
-
-                  <div className="bg-green-50 border border-green-200 rounded p-2 text-xs text-green-700">
-                    <p className="font-semibold mb-1">💰 Per Auto Summary:</p>
-                    <div className="space-y-0.5">
-                      <p>Cost: <span className="font-bold">₹{bulkPaymentData.monthly_cost ? parseFloat(bulkPaymentData.monthly_cost).toLocaleString('en-IN') : '0'}</span></p>
-                      <p>Advance: <span className="font-bold">₹{bulkPaymentData.advance_payment ? parseFloat(bulkPaymentData.advance_payment).toLocaleString('en-IN') : '0'}</span></p>
-                      <p>Remaining: <span className="font-bold text-orange-600">₹{bulkPaymentData.monthly_cost && bulkPaymentData.advance_payment ? (parseFloat(bulkPaymentData.monthly_cost) - parseFloat(bulkPaymentData.advance_payment)).toLocaleString('en-IN') : (bulkPaymentData.monthly_cost ? parseFloat(bulkPaymentData.monthly_cost).toLocaleString('en-IN') : '0')}</span></p>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs text-gray-700">
-                    <p className="font-semibold">Selected: {snapshotSelectedAutos.size} auto(s)</p>
-                  </div>
-
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowBulkPaymentModal(false);
-                        setBulkPaymentData({ start_date: '', monthly_cost: '', advance_payment: '' });
-                        setSnapshotSelectedAutos(new Set());
-                      }}
-                      className="flex-1 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold text-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={bulkPaymentLoading}
-                      className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-semibold text-sm"
-                    >
-                      {bulkPaymentLoading ? 'Creating...' : `Create (${snapshotSelectedAutos.size})`}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
           )}
 
           {/* ===== EDIT AUTO PAYMENT MODAL ===== */}
@@ -1524,7 +1320,7 @@ export default function PaymentAdminPage() {
                       step="0.01"
                       min="0"
                       value={editPaymentData.monthly_cost || ''}
-                      onChange={(e) => setEditPaymentData({ ...editPaymentData, monthly_cost: e.target.value })}
+                      onChange={(e) => setEditPaymentData({ ...editPaymentData, monthly_cost: parseFloat(e.target.value) || '' })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
@@ -1536,7 +1332,7 @@ export default function PaymentAdminPage() {
                       step="0.01"
                       min="0"
                       value={editPaymentData.advance_payment || ''}
-                      onChange={(e) => setEditPaymentData({ ...editPaymentData, advance_payment: e.target.value })}
+                      onChange={(e) => setEditPaymentData({ ...editPaymentData, advance_payment: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
@@ -1598,72 +1394,197 @@ export default function PaymentAdminPage() {
 
           {/* ===== AUTO PAYMENT DETAILS MODAL ===== */}
           {showAutoPaymentDetailsModal && selectedAutoPaymentDetails && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Details</h2>
-                
-                <div className="space-y-4">
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Auto No.</p>
-                    <p className="text-gray-900 font-bold">{selectedAutoPaymentDetails.auto_no}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Area</p>
-                    <p className="text-gray-900">{selectedAutoPaymentDetails.area_name || 'N/A'}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Monthly Cost</p>
-                    <p className="text-green-600 font-bold text-lg">₹{(selectedAutoPaymentDetails.monthly_cost || 0).toLocaleString('en-IN')}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Advance Paid</p>
-                    <p className="text-blue-600 font-bold text-lg">₹{(selectedAutoPaymentDetails.advance_payment || 0).toLocaleString('en-IN')}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Remaining to be Paid</p>
-                    <p className="text-orange-600 font-bold text-lg">₹{((selectedAutoPaymentDetails.monthly_cost || 0) - (selectedAutoPaymentDetails.advance_payment || 0)).toLocaleString('en-IN')}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Start Date</p>
-                    <p className="text-gray-900">{parseLocalDate(selectedAutoPaymentDetails.start_date.split('T')[0]).toLocaleDateString('en-IN')}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">End Date</p>
-                    <p className="text-gray-900">{parseLocalDate(selectedAutoPaymentDetails.end_date.split('T')[0]).toLocaleDateString('en-IN')}</p>
-                  </div>
-
-                  <div className="border-b pb-3">
-                    <p className="text-sm text-gray-600 font-semibold">Notes</p>
-                    <p className="text-gray-900">{selectedAutoPaymentDetails.notes || '-'}</p>
-                  </div>
-
-                  <div className="flex gap-4 pt-4">
-                    <button
-                      onClick={() => {
-                        setShowAutoPaymentDetailsModal(false);
-                        setSelectedAutoPaymentDetails(null);
-                      }}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold"
-                    >
-                      Close
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleEditAutoPayment(selectedAutoPaymentDetails);
-                        setShowAutoPaymentDetailsModal(false);
-                      }}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
-                    >
-                      Edit
-                    </button>
-                  </div>
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full max-h-[80vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold text-gray-900">{isRenewalMode ? 'Renew Payment' : 'Payment Details'}</h2>
+                  <button
+                    onClick={() => {
+                      setShowAutoPaymentDetailsModal(false);
+                      setSelectedAutoPaymentDetails(null);
+                      setIsRenewalMode(false);
+                      setRenewalData({});
+                    }}
+                    className="text-gray-400 hover:text-gray-600 font-bold text-xl"
+                  >
+                    ✕
+                  </button>
                 </div>
+                
+                {!isRenewalMode ? (
+                  // Details View
+                  <div className="space-y-3">
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Auto No.</p>
+                      <p className="text-gray-900 font-bold text-sm">{selectedAutoPaymentDetails.auto_no}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Area</p>
+                      <p className="text-gray-900 text-sm">{selectedAutoPaymentDetails.area_name || 'N/A'}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Monthly Cost</p>
+                      <p className="text-green-600 font-bold text-sm">₹{(selectedAutoPaymentDetails.monthly_cost || 0).toLocaleString('en-IN')}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Advance Paid</p>
+                      <p className="text-blue-600 font-bold text-sm">₹{(selectedAutoPaymentDetails.advance_payment || 0).toLocaleString('en-IN')}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Remaining to be Paid</p>
+                      <p className="text-orange-600 font-bold text-sm">₹{((selectedAutoPaymentDetails.monthly_cost || 0) - (selectedAutoPaymentDetails.advance_payment || 0)).toLocaleString('en-IN')}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Start Date</p>
+                      <p className="text-gray-900 text-sm">{parseLocalDate(selectedAutoPaymentDetails.start_date.split('T')[0]).toLocaleDateString('en-IN')}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">End Date</p>
+                      <p className="text-gray-900 text-sm">{parseLocalDate(selectedAutoPaymentDetails.end_date.split('T')[0]).toLocaleDateString('en-IN')}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Notes</p>
+                      <p className="text-gray-900 text-sm">{selectedAutoPaymentDetails.notes || '-'}</p>
+                    </div>
+
+                    <div className="flex gap-3 pt-3">
+                      <button
+                        onClick={() => {
+                          handleEditAutoPayment(selectedAutoPaymentDetails);
+                          setShowAutoPaymentDetailsModal(false);
+                        }}
+                        className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm"
+                      >
+                        Edit
+                      </button>
+                      {detailsModalSource === 'dueSoon' && (
+                        <button
+                          onClick={handleRenewal}
+                          className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm"
+                        >
+                          Renew
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // Renewal Form
+                  <form onSubmit={handleSaveRenewal} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Auto No.</label>
+                      <p className="px-3 py-2 bg-gray-100 rounded-lg text-gray-900 font-semibold text-sm">
+                        {selectedAutoPaymentDetails.auto_no}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Monthly Cost (₹) *</label>
+                      <input
+                        type="number"
+                        required
+                        step="0.01"
+                        min="0"
+                        value={renewalData.monthly_cost || ''}
+                        onChange={(e) => setRenewalData({ ...renewalData, monthly_cost: parseFloat(e.target.value) || '' })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Advance Payment (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={renewalData.advance_payment || ''}
+                        onChange={(e) => setRenewalData({ ...renewalData, advance_payment: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      />
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-xs text-gray-600 font-semibold">New Cycle</p>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setEditingRenewalDates(!editingRenewalDates)}
+                            className="text-gray-400 hover:text-gray-600 font-bold text-lg p-1"
+                            title="Edit dates"
+                          >
+                            ⋮
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {!editingRenewalDates ? (
+                        <>
+                          <p className="text-sm text-gray-900">
+                            <span className="font-semibold">Start:</span> {parseLocalDate(renewalData.renewal_start_date).toLocaleDateString('en-IN')}
+                          </p>
+                          <p className="text-sm text-gray-900">
+                            <span className="font-semibold">End:</span> {parseLocalDate(renewalData.renewal_end_date).toLocaleDateString('en-IN')}
+                          </p>
+                        </>
+                      ) : (
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Start Date</label>
+                            <input
+                              type="date"
+                              value={renewalData.renewal_start_date || ''}
+                              onChange={(e) => setRenewalData({ ...renewalData, renewal_start_date: e.target.value })}
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">End Date</label>
+                            <input
+                              type="date"
+                              value={renewalData.renewal_end_date || ''}
+                              onChange={(e) => setRenewalData({ ...renewalData, renewal_end_date: e.target.value })}
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditingRenewalDates(false)}
+                            className="w-full text-xs px-2 py-1 text-blue-600 hover:text-blue-700 font-semibold"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-3 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsRenewalMode(false);
+                          setRenewalData({});
+                        }}
+                        className="flex-1 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold text-sm"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={renewalLoading}
+                        className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 font-semibold text-sm"
+                      >
+                        {renewalLoading ? 'Renewing...' : 'Confirm Renewal'}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             </div>
           )}

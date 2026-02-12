@@ -125,6 +125,13 @@ class AutoMonthlyPayment {
       .update({ deleted_at: new Date() });
   }
 
+  static async deleteByAutoId(autoId) {
+    // Soft delete all payments for an auto
+    await db('auto_monthly_payments')
+      .where({ auto_id: autoId })
+      .update({ deleted_at: new Date() });
+  }
+
   static async hardDelete(id) {
     await db('auto_monthly_payments').where({ id }).del();
   }

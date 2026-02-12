@@ -1,6 +1,7 @@
 const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
 const { calculateAutoStatus } = require('../utils/statusCalculator');
+const AutoMonthlyPayment = require('./AutoMonthlyPayment');
 
 class Auto {
   static async findById(id) {
@@ -76,10 +77,14 @@ class Auto {
   }
 
   static async softDelete(id) {
+    // Soft delete the auto
     await db('autos').where({ id }).update({
       deleted_at: new Date(),
       updated_at: new Date(),
     });
+    
+    // Cascade: Soft delete all associated monthly payments
+    await AutoMonthlyPayment.deleteByAutoId(id);
   }
 
   static async getWithAssignments(id) {

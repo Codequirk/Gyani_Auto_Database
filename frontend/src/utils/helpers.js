@@ -43,6 +43,21 @@ export const formatDate = (date) => {
   return d.toLocaleDateString();
 };
 
+export const formatDaysRemaining = (days) => {
+  if (days <= 0) {
+    return 'Expired';
+  }
+  
+  // For days > 30, show as "X+ 30 days"
+  if (days > 30) {
+    const extraDays = days - 30;
+    return `${extraDays}+ 30 days`;
+  }
+  
+  // For days <= 30, show as "X days"
+  return `${days} day${days !== 1 ? 's' : ''}`;
+};
+
 export const getStatusBadgeColor = (status) => {
   const colors = {
     IDLE: 'bg-yellow-100 text-yellow-800',

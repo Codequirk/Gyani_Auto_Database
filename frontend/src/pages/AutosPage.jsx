@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useFetch, usePolling } from '../hooks/useFetch';
 import { autoService, assignmentService, areaService, companyService } from '../services/api';
 import { Card, Button, Input, Modal, LoadingSpinner, Badge, ErrorAlert } from '../components/UI';
-import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
+import { computeDaysRemaining, formatDate, getStatusBadgeColor, formatDaysRemaining } from '../utils/helpers';
 import { validateAssignmentDates } from '../utils/assignmentValidation';
 import Navbar from '../components/Navbar';
 
@@ -1103,7 +1103,7 @@ const AutosPage = () => {
                     </td>
                     <td className="px-4 py-2">{auto.current_company || '-'}</td>
                     <td className="px-4 py-2">
-                      {auto.days_remaining !== null ? `${auto.days_remaining} days` : '-'}
+                      {auto.days_remaining !== null ? formatDaysRemaining(auto.days_remaining) : '-'}
                     </td>
                     <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                       <AutoActionMenu

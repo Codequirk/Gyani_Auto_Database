@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
-import { autoService, areaService } from '../services/api';
+import { autoService, areaService, autoMonthlyPaymentService } from '../services/api';
 import { Card, Button, Input, LoadingSpinner, ErrorAlert } from '../components/UI';
 import Navbar from '../components/Navbar';
 
@@ -14,12 +14,30 @@ const AddAutoPage = () => {
     area_id: '',
     notes: '',
   });
+  const [paymentData, setPaymentData] = useState({
+    monthly_cost: '',
+    advance_payment: '',
+    start_date: '',
+    end_date: '',
+  });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoNoError, setAutoNoError] = useState('');
+  const [editingDates, setEditingDates] = useState(false);
 
   const { data: areas, loading: areasLoading } = useFetch(() => areaService.list());
+
+  /**
+   * Calculate end date: start_date + 29 days = 30-day billing cycle
+   */
+  const calculateEndDate = (startDateString) => {
+    if (!startDateString) return '';
+    const start = new Date(startDateString);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 29);
+    return end.toISOString().split('T')[0];
+  };
 
   /**
    * Validate auto number format (Indian vehicle registration)
@@ -60,6 +78,19 @@ const AddAutoPage = () => {
       setFormData((prev) => ({
         ...prev,
         [name]: digitsOnly,
+      }));
+    } else if (name === 'start_date') {
+      // Auto-calculate end date when start date changes
+      const calculatedEndDate = calculateEndDate(value);
+      setPaymentData((prev) => ({
+        ...prev,
+        start_date: value,
+        end_date: !editingDates ? calculatedEndDate : prev.end_date,
+      }));
+    } else if (['monthly_cost', 'advance_payment', 'end_date'].includes(name)) {
+      setPaymentData((prev) => ({
+        ...prev,
+        [name]: value,
       }));
     } else {
       setFormData((prev) => ({
@@ -108,7 +139,46 @@ const AddAutoPage = () => {
         return;
       }
 
-      const response = await autoService.create({
+      // Validate payment fields
+      if (!paymentData.monthly_cost.trim()) {
+        setError('Monthly cost is required');
+        setLoading(false);
+        return;
+      }
+      if (isNaN(paymentData.monthly_cost) || parseFloat(paymentData.monthly_cost) <= 0) {
+        setError('Monthly cost must be a valid positive number');
+        setLoading(false);
+        return;
+      }
+      if (!paymentData.advance_payment.trim()) {
+        setError('Advance payment is required');
+        setLoading(false);
+        return;
+      }
+      if (isNaN(paymentData.advance_payment) || parseFloat(paymentData.advance_payment) < 0) {
+        setError('Advance payment must be a valid non-negative number');
+        setLoading(false);
+        return;
+      }
+      if (parseFloat(paymentData.advance_payment) > parseFloat(paymentData.monthly_cost)) {
+        setError('Advance payment cannot be greater than monthly cost');
+        setLoading(false);
+        return;
+      }
+      if (!paymentData.start_date) {
+        setError('Start date is required');
+        setLoading(false);
+        return;
+      }
+
+      // Auto-calculate end_date if not already set
+      let endDate = paymentData.end_date;
+      if (!endDate) {
+        endDate = calculateEndDate(paymentData.start_date);
+      }
+
+      // Create auto first
+      const autoResponse = await autoService.create({
         auto_no: formData.auto_no.trim(),
         owner_name: formData.owner_name.trim(),
         driver_phone: formData.driver_phone,
@@ -116,8 +186,20 @@ const AddAutoPage = () => {
         notes: formData.notes.trim(),
       });
 
-      setSuccess('Auto added successfully!');
+      const autoId = autoResponse.data?.id || autoResponse.id;
+
+      // Create payment for the auto
+      await autoMonthlyPaymentService.create({
+        auto_id: autoId,
+        monthly_cost: parseFloat(paymentData.monthly_cost),
+        advance_payment: parseFloat(paymentData.advance_payment),
+        start_date: paymentData.start_date,
+        end_date: endDate,
+      });
+
+      setSuccess('Auto and payment added successfully!');
       setFormData({ auto_no: '', owner_name: '', driver_phone: '', area_id: '', notes: '' });
+      setPaymentData({ monthly_cost: '', advance_payment: '', start_date: '', end_date: '' });
 
       // Redirect to autos list after 2 seconds
       setTimeout(() => {
@@ -243,6 +325,101 @@ const AddAutoPage = () => {
                 rows="4"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            {/* Payment Section */}
+            <div className="border-t pt-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Payment Details</h2>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Monthly Cost (₹) *
+                </label>
+                <Input
+                  type="number"
+                  name="monthly_cost"
+                  value={paymentData.monthly_cost}
+                  onChange={handleChange}
+                  placeholder="e.g., 5000"
+                  step="0.01"
+                  min="0"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Advance Payment (₹) *
+                </label>
+                <Input
+                  type="number"
+                  name="advance_payment"
+                  value={paymentData.advance_payment}
+                  onChange={handleChange}
+                  placeholder="e.g., 2500"
+                  step="0.01"
+                  min="0"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Maximum: {paymentData.monthly_cost ? `₹${parseFloat(paymentData.monthly_cost).toLocaleString('en-IN')}` : 'Enter monthly cost first'}
+                </p>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Start Date *
+                  </label>
+                </div>
+                <input
+                  type="date"
+                  name="start_date"
+                  value={paymentData.start_date}
+                  onChange={handleChange}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    End Date (Auto-calculated)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setEditingDates(!editingDates)}
+                    className="text-lg text-blue-600 hover:text-blue-800 font-bold px-2 py-1"
+                    title="Edit dates manually"
+                  >
+                    {editingDates ? '✓' : '⋮'}
+                  </button>
+                </div>
+                {editingDates ? (
+                  <input
+                    type="date"
+                    name="end_date"
+                    value={paymentData.end_date}
+                    onChange={handleChange}
+                    min={paymentData.start_date || new Date().toISOString().split('T')[0]}
+                    className="w-full px-4 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                  />
+                ) : (
+                  <input
+                    type="date"
+                    value={paymentData.end_date}
+                    disabled
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700 cursor-not-allowed"
+                  />
+                )}
+                {paymentData.start_date && paymentData.end_date && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Duration: {Math.ceil((new Date(paymentData.end_date) - new Date(paymentData.start_date)) / (1000 * 60 * 60 * 24)) + 1} days
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-3">

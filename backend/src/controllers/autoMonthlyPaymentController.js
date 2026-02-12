@@ -234,7 +234,7 @@ exports.getAutoMonthlyPaymentsByAuto = async (req, res, next) => {
 exports.updateAutoMonthlyPayment = async (req, res, next) => {
   try {
     const { paymentId } = req.params;
-    const { monthly_cost, start_date, end_date, notes } = req.body;
+    const { monthly_cost, advance_payment, start_date, end_date, notes } = req.body;
 
     const payment = await AutoMonthlyPayment.findById(paymentId);
     if (!payment) {
