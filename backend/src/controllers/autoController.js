@@ -384,15 +384,27 @@ exports.updateAuto = async (req, res, next) => {
 exports.deleteAuto = async (req, res, next) => {
   try {
     const { id } = req.params;
+    
+    console.log('🗑️ DELETE /api/autos/:id received');
+    console.log('📋 Auto ID:', id);
 
     const auto = await Auto.findById(id);
     if (!auto) {
+      console.log('❌ Auto not found:', id);
       return res.status(404).json({ error: 'Auto not found' });
     }
 
+    console.log('✓ Auto found:', auto.auto_no);
     await Auto.softDelete(id);
-    res.json({ message: 'Auto deleted' });
+    console.log('✨ Auto deleted:', id);
+    
+    res.json({ 
+      success: true,
+      message: 'Auto deleted',
+      auto_id: id 
+    });
   } catch (error) {
+    console.error('❌ Delete error:', error);
     next(error);
   }
 };
@@ -446,6 +458,12 @@ exports.getAvailableAutosCount = async (req, res, next) => {
     let availableCount = 0;
 
     for (const auto of autos) {
+      // Skip blocked autos (overdue payments)
+      if (auto.is_blocked) {
+        console.log(`  ⏭️  Skipping blocked auto in count: ${auto.auto_no}`);
+        continue;
+      }
+
       const assignments = await Assignment.findByAutoId(auto.id);
       
       // Check if auto has any active/prebooked assignments overlapping with requested dates

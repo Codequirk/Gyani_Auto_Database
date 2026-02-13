@@ -46,27 +46,48 @@ const CompanyRequestAssignmentPage = () => {
         return;
       }
       
-      // Fetch available autos (filtered by area if specified)
-      let autosUrl = '/autos';
-      if (currentRequest.area_id) {
-        autosUrl = `/autos?area_id=${currentRequest.area_id}`;
-      }
+      // Fetch available autos (intelligently filtered by backend for date overlap)
+      const suggestionResponse = await api.get(`/company-tickets/admin/${requestId}/available-autos`);
+      const availableAutosList = suggestionResponse.data.available_autos || [];
       
-      const autosResponse = await api.get(autosUrl);
-      setAutos(autosResponse.data || []);
+      // Use ONLY the available autos (which already filters by date overlap)
+      setAutos(availableAutosList);
       
-      // Get intelligent suggestions from backend
-      try {
-        const suggestionResponse = await api.get(`/company-tickets/admin/${requestId}/available-autos`);
-        const suggestedIds = suggestionResponse.data.available_autos || [];
-        setSuggestedAutoIds(suggestedIds.map(a => a.id));
+      // Pre-select autos up to the requested count
+      // Priority: IDLE first, then ACTIVE, then PREBOOKED
+      const requiredCount = currentRequest.autos_required || 0;
+      const newSelected = new Set();
+      const suggestedIds = [];
+      
+      if (requiredCount > 0) {
+        // First, add IDLE autos
+        const idleAutos = availableAutosList.filter(a => a.display_status === 'IDLE');
+        idleAutos.slice(0, requiredCount).forEach(a => {
+          newSelected.add(a.id);
+          suggestedIds.push(a.id);
+        });
         
-        // Pre-select suggested autos
-        setSelectedAutos(new Set(suggestedIds.map(a => a.id)));
-      } catch (err) {
-        // Suggestions not available, continue without them
-        console.warn('Could not fetch auto suggestions');
+        // If still need more, add ACTIVE autos
+        if (newSelected.size < requiredCount) {
+          const activeAutos = availableAutosList.filter(a => a.display_status === 'ACTIVE');
+          activeAutos.slice(0, requiredCount - newSelected.size).forEach(a => {
+            newSelected.add(a.id);
+            suggestedIds.push(a.id);
+          });
+        }
+        
+        // If still need more, add PREBOOKED autos
+        if (newSelected.size < requiredCount) {
+          const prebookedAutos = availableAutosList.filter(a => a.display_status === 'PREBOOKED');
+          prebookedAutos.slice(0, requiredCount - newSelected.size).forEach(a => {
+            newSelected.add(a.id);
+            suggestedIds.push(a.id);
+          });
+        }
       }
+      
+      setSuggestedAutoIds(suggestedIds);
+      setSelectedAutos(newSelected);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load data');
     } finally {
@@ -289,11 +310,11 @@ const CompanyRequestAssignmentPage = () => {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-600">Status:</span>
                           <Badge className={
-                            (auto.display_status || auto.status) === 'ACTIVE' 
+                            (auto.display_status || auto.status) === 'IDLE' 
                               ? 'bg-green-100 text-green-800' 
-                              : (auto.display_status || auto.status) === 'PREBOOKED'
+                              : (auto.display_status || auto.status) === 'ACTIVE'
                               ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
+                              : 'bg-blue-100 text-blue-800'
                           }>
                             {auto.display_status || auto.status || 'IDLE'}
                           </Badge>

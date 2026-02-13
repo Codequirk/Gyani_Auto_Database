@@ -127,7 +127,12 @@ const DashboardPage = () => {
                 <tbody>
                   {priorityAutos.map((auto) => (
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
-                      <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{auto.auto_no}</span>
+                          {auto.is_blocked && <Badge className="bg-red-100 text-red-800 text-xs">Blocked</Badge>}
+                        </div>
+                      </td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.company_name || '-'}</td>
                       <td className="px-4 py-2">{formatDate(auto.start_date)}</td>
@@ -164,7 +169,12 @@ const DashboardPage = () => {
                 <tbody>
                   {idleAutos.map((auto) => (
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
-                      <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{auto.auto_no}</span>
+                          {auto.is_blocked && <Badge className="bg-red-100 text-red-800 text-xs">Blocked</Badge>}
+                        </div>
+                      </td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
                       <td className="px-4 py-2">{formatDate(auto.last_updated_at)}</td>
@@ -206,7 +216,12 @@ const DashboardPage = () => {
                 <tbody>
                   {allAutos.map((auto) => (
                     <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
-                      <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{auto.auto_no}</span>
+                          {auto.is_blocked && <Badge className="bg-red-100 text-red-800 text-xs">Blocked</Badge>}
+                        </div>
+                      </td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name || '-'}</td>
                       <td className="px-4 py-2">

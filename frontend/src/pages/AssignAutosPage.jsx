@@ -205,17 +205,30 @@ const AssignAutosPage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {(() => {
+                // Filter out blocked autos
+                const availableAutos = autos.filter(auto => !auto.is_blocked);
+                
                 // Sort autos by status: IDLE first, then ACTIVE, then PREBOOKED
                 const statusPriority = { IDLE: 0, ACTIVE: 1, PREBOOKED: 2 };
-                const sortedAutos = [...autos].sort((a, b) => {
+                const sortedAutos = [...availableAutos].sort((a, b) => {
                   const aStatus = a.display_status || a.status;
                   const bStatus = b.display_status || b.status;
                   const aPriority = statusPriority[aStatus] ?? 99;
                   const bPriority = statusPriority[bStatus] ?? 99;
                   return aPriority - bPriority;
                 });
+
+                // Show blocked autos info if any were filtered out
+                const blockedCount = autos.filter(auto => auto.is_blocked).length;
                 
-                return sortedAutos.map((auto) => (
+                return (
+                  <>
+                    {blockedCount > 0 && (
+                      <div className="col-span-full mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-red-700 text-sm">ℹ️ {blockedCount} auto(s) are blocked due to overdue payments and not available for assignment.</p>
+                      </div>
+                    )}
+                    {sortedAutos.map((auto) => (
                 <Card
                   key={auto.id}
                   className={`p-4 cursor-pointer transition ${
@@ -268,6 +281,8 @@ const AssignAutosPage = () => {
                     </div>
                   )}
                 </Card>
+                    ))}
+                  </>
                 );
               })()}
             </div>

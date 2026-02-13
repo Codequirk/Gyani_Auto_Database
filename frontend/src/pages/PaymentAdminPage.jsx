@@ -80,6 +80,23 @@ export default function PaymentAdminPage() {
     }
   }, [openMenuKey]);
 
+  useEffect(() => {
+    const handleClickOutsideMenu = (event) => {
+      // Close menu if clicking outside the menu area
+      const menuButton = event.target.closest('button[title="Actions"]');
+      const menuDiv = event.target.closest('[role="menu"]');
+      
+      if (!menuButton && !menuDiv && openMenuId) {
+        setOpenMenuId(null);
+      }
+    };
+
+    if (openMenuId) {
+      document.addEventListener('mousedown', handleClickOutsideMenu);
+      return () => document.removeEventListener('mousedown', handleClickOutsideMenu);
+    }
+  }, [openMenuId]);
+
   const fetchPaymentData = async () => {
     try {
       setLoading(true);
@@ -246,20 +263,87 @@ export default function PaymentAdminPage() {
     });
   };
 
-  const handleEditAutoPayment = (payment) => {
+  const handleEditAutoPayment = (payment, tableSource = '') => {
     setEditingPayment(payment);
-    // Extract just the date part (YYYY-MM-DD) without time
-    const startDateOnly = payment.start_date.split('T')[0];
-    const endDateOnly = payment.end_date.split('T')[0];
+    
+    // For overdue payments, set start_date to tomorrow
+    let startDate, endDate;
+    
+    if (tableSource === 'overdue') {
+      // Set start date to tomorrow
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      startDate = dateToString(tomorrow);
+      endDate = calculateEndDate(startDate);
+    } else {
+      // Use existing dates
+      startDate = payment.start_date.split('T')[0];
+      endDate = payment.end_date.split('T')[0];
+    }
     
     setEditPaymentData({
       monthly_cost: payment.monthly_cost,
-      advance_payment: payment.advance_payment || 0, // NEW: Include advance payment
-      start_date: startDateOnly,
-      end_date: endDateOnly,
+      advance_payment: payment.advance_payment || 0,
+      start_date: startDate,
+      end_date: endDate,
       notes: payment.notes || '',
     });
     setShowEditPaymentModal(true);
+  };
+
+  const handleDeleteIdleAuto = async (autoId, autoNo) => {
+    console.log('🗑️ Delete handler called with:', { autoId, autoNo });
+    
+    if (!window.confirm(`Delete auto ${autoNo}?`)) {
+      console.log('❌ Delete cancelled by user');
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('auth_token');
+      console.log('🔐 Token available:', !!token);
+      
+      const url = `http://localhost:5001/api/autos/${autoId}`;
+      console.log('📤 Sending DELETE to:', url);
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('📥 Response status:', response.status);
+      console.log('✅ Response ok:', response.ok);
+      
+      const text = await response.text();
+      console.log('📄 Response text:', text);
+      
+      let data = {};
+      try {
+        data = JSON.parse(text);
+        console.log('📊 Response JSON:', data);
+      } catch (e) {
+        console.log('⚠️ Response not JSON');
+      }
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Server error: ${response.status}`);
+      }
+      
+      console.log('✨ Delete successful');
+      setAutoPayments(autoPayments.filter(p => p.auto_id !== autoId));
+      setOpenMenuId(null);
+      alert(`Auto ${autoNo} deleted successfully`);
+      
+    } catch (err) {
+      console.error('❌ Delete failed:', err);
+      alert(`Delete failed: ${err.message}`);
+    }
   };
 
   const handleSaveAutoPaymentEdit = async (e) => {
@@ -1138,7 +1222,7 @@ export default function PaymentAdminPage() {
                       }
                     }
 
-                    const renderPaymentTable = (payments, title, bgColor, headerBg, showEditButton = true, onDoubleClickAction = 'details', tableSource = 'allPayments') => (
+                    const renderPaymentTable = (payments, title, bgColor, headerBg, showEditButton = true, onDoubleClickAction = 'details', tableSource = 'allPayments', showStatus = false) => (
                       <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
                         <div className={`${bgColor} text-white px-6 py-4`}>
                           <div className="flex justify-between items-center">
@@ -1159,20 +1243,21 @@ export default function PaymentAdminPage() {
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Auto No.</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Owner Name</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Area</th>
+                                {showStatus && <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>}
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Monthly Cost</th>
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Advance Paid</th>
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Remaining</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Start Date</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">End Date</th>
                                 <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Days Remaining</th>
-                                {showEditButton && <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Actions</th>}
+                                {(showEditButton || tableSource === 'overdue') && <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Actions</th>}
                               </tr>
                             </thead>
                             <tbody className="divide-y">
                               {payments.map((payment) => {
                                 const handleRowDoubleClick = () => {
                                   if (onDoubleClickAction === 'edit') {
-                                    handleEditAutoPayment(payment);
+                                    handleEditAutoPayment(payment, tableSource);
                                   } else {
                                     handleViewAutoPaymentDetails(payment, tableSource);
                                   }
@@ -1189,6 +1274,18 @@ export default function PaymentAdminPage() {
                                     <td className="px-6 py-4 text-sm text-gray-700">
                                       {payment.area_name || 'N/A'}
                                     </td>
+                                    {showStatus && (
+                                      <td className="px-6 py-4 text-sm">
+                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                                          payment.status === 'IDLE' ? 'bg-gray-100 text-gray-800' :
+                                          payment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
+                                          payment.status === 'PREBOOKED' ? 'bg-blue-100 text-blue-800' :
+                                          'bg-gray-100 text-gray-800'
+                                        }`}>
+                                          {payment.status || 'IDLE'}
+                                        </span>
+                                      </td>
+                                    )}
                                     <td className="px-6 py-4 text-sm text-right font-semibold text-green-600">
                                       ₹{(payment.monthly_cost || 0).toLocaleString('en-IN')}
                                     </td>
@@ -1213,20 +1310,24 @@ export default function PaymentAdminPage() {
                                         {formatDaysRemaining(payment.daysRemaining)}
                                       </span>
                                     </td>
-                                    {showEditButton && (
+                                    {(showEditButton || tableSource === 'overdue') && (
                                       <td className="px-6 py-4 text-sm text-center">
                                         <div className="relative">
                                           <button
-                                            onClick={() => setOpenMenuId(openMenuId === payment.id ? null : payment.id)}
+                                            onClick={() => {
+                                              console.log('⋮ Menu toggle clicked for:', payment.id, 'isOpen:', openMenuId === payment.id);
+                                              setOpenMenuId(openMenuId === payment.id ? null : payment.id);
+                                            }}
                                             className="p-1 hover:bg-gray-100 rounded text-gray-600 hover:text-gray-900"
                                             title="Actions"
                                           >
                                             ⋮
                                           </button>
                                           {openMenuId === payment.id && (
-                                            <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
+                                            <div className="absolute -left-32 bottom-full mb-2 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
                                               <button
                                                 onClick={() => {
+                                                  console.log('✏️ Edit button clicked');
                                                   handleEditAutoPayment(payment);
                                                   setOpenMenuId(null);
                                                 }}
@@ -1234,6 +1335,20 @@ export default function PaymentAdminPage() {
                                               >
                                                 Edit
                                               </button>
+                                              {tableSource === 'overdue' && payment.status === 'IDLE' && (
+                                                <button
+                                                  type="button"
+                                                  onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    console.log('🗑️ DELETE CLICKED!', payment.auto_id, payment.auto_no, 'status:', payment.status);
+                                                    handleDeleteIdleAuto(payment.auto_id, payment.auto_no);
+                                                  }}
+                                                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 border-t border-gray-200"
+                                                >
+                                                  Delete
+                                                </button>
+                                              )}
                                             </div>
                                           )}
                                         </div>
@@ -1250,7 +1365,7 @@ export default function PaymentAdminPage() {
 
                     return (
                       <>
-                        {renderPaymentTable(overduePayments, '🚨 Payment Overdue', 'bg-red-600', 'bg-red-100', false, 'edit', 'overdue')}
+                        {renderPaymentTable(overduePayments, '🚨 Payment Overdue', 'bg-red-600', 'bg-red-100', false, 'edit', 'overdue', true)}
                         {renderPaymentTable(dueSoonPayments, '⚠️ Payment Due Soon (1-7 Days)', 'bg-yellow-600', 'bg-yellow-100', true, 'details', 'dueSoon')}
                         
                         {/* Filters for All Assigned Payments */}
@@ -1301,14 +1416,28 @@ export default function PaymentAdminPage() {
           {/* ===== EDIT AUTO PAYMENT MODAL ===== */}
           {showEditPaymentModal && editingPayment && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-              <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full my-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Payment</h2>
+              <div className="bg-white rounded-lg shadow-lg p-4 max-w-md w-full my-8">
+                <h2 className="text-lg font-bold text-gray-900 mb-2">Assign Payment</h2>
                 
-                <form onSubmit={handleSaveAutoPaymentEdit} className="space-y-3">
+                <form onSubmit={handleSaveAutoPaymentEdit} className="space-y-2">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1">Auto</label>
                     <p className="px-3 py-2 bg-gray-100 rounded-lg text-gray-900 font-semibold text-sm">
                       {editingPayment.auto_no}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Owner Name</label>
+                    <p className="px-3 py-2 bg-gray-100 rounded-lg text-gray-900 text-sm">
+                      {editingPayment.owner_name || 'N/A'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Phone Number</label>
+                    <p className="px-3 py-2 bg-gray-100 rounded-lg text-gray-900 text-sm">
+                      {editingPayment.driver_phone || 'N/A'}
                     </p>
                   </div>
 
@@ -1358,13 +1487,17 @@ export default function PaymentAdminPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">End Date (Auto-calc)</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">End Date *</label>
                     <input
                       type="date"
-                      disabled
+                      required
                       value={editPaymentData.end_date || ''}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700 cursor-not-allowed text-sm"
+                      onChange={(e) => setEditPaymentData({ ...editPaymentData, end_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Auto-calculated from start date, but you can edit if needed
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-2">
@@ -1384,7 +1517,7 @@ export default function PaymentAdminPage() {
                       disabled={editPaymentLoading}
                       className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-semibold text-sm"
                     >
-                      {editPaymentLoading ? 'Saving...' : 'Save'}
+                      {editPaymentLoading ? 'Assigning...' : 'Assign'}
                     </button>
                   </div>
                 </form>
@@ -1417,6 +1550,16 @@ export default function PaymentAdminPage() {
                     <div className="border-b pb-2">
                       <p className="text-xs text-gray-600 font-semibold">Auto No.</p>
                       <p className="text-gray-900 font-bold text-sm">{selectedAutoPaymentDetails.auto_no}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Owner Name</p>
+                      <p className="text-gray-900 text-sm">{selectedAutoPaymentDetails.owner_name || 'N/A'}</p>
+                    </div>
+
+                    <div className="border-b pb-2">
+                      <p className="text-xs text-gray-600 font-semibold">Phone Number</p>
+                      <p className="text-gray-900 text-sm">{selectedAutoPaymentDetails.driver_phone || 'N/A'}</p>
                     </div>
 
                     <div className="border-b pb-2">

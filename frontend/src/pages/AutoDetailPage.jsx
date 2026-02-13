@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
-import { autoService, assignmentService, companyService } from '../services/api';
+import { autoService, assignmentService, companyService, autoMonthlyPaymentService } from '../services/api';
 import { Card, Button, Badge, ErrorAlert, LoadingSpinner, Input, Modal } from '../components/UI';
 import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
@@ -95,6 +95,11 @@ const AutoDetailPage = () => {
     [id]
   );
   const { data: companies } = useFetch(() => companyService.list());
+  const { data: paymentsResponse } = useFetch(
+    () => autoMonthlyPaymentService.getByAuto(id),
+    [id]
+  );
+  const payments = paymentsResponse?.list || [];
 
   // Load advertisement images for the current assignment
   useEffect(() => {
@@ -446,6 +451,14 @@ const AutoDetailPage = () => {
                 <p className="text-gray-600 text-sm">Area</p>
                 <p className="text-lg font-medium">{auto.area_name || 'N/A'}</p>
               </div>
+              {auto.is_blocked && (
+                <div className="col-span-2">
+                  <p className="text-gray-600 text-sm">Status</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className="bg-red-100 text-red-800">Blocked - Overdue Payment</Badge>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -589,6 +602,37 @@ const AutoDetailPage = () => {
               </div>
             </div>
           </Card>
+
+          {/* Payment Details */}
+          {payments && payments.length > 0 && (
+            <Card>
+              <h2 className="text-xl font-semibold mb-4">Payment Details</h2>
+              <div className="space-y-4">
+                {payments.map((payment, index) => (
+                  <div key={payment.id || index} className="border-t pt-4 first:border-t-0 first:pt-0">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-gray-600 text-sm">Start Date</p>
+                        <p className="text-lg font-medium">{formatDate(payment.start_date)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600 text-sm">End Date</p>
+                        <p className="text-lg font-medium">{formatDate(payment.end_date)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600 text-sm">Monthly Cost</p>
+                        <p className="text-lg font-medium">₹{payment.monthly_cost?.toLocaleString('en-IN') || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600 text-sm">Advance Payment</p>
+                        <p className="text-lg font-medium">₹{payment.advance_payment?.toLocaleString('en-IN') || '-'}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* Assignment Status Panel - ACTIVE and PREBOOKED only */}
           {auto.assignments && auto.assignments.filter(a => ['ACTIVE', 'PREBOOKED'].includes(a.status)).length > 0 && (

@@ -112,33 +112,45 @@ const CompanyRequestsPage = () => {
       return;
     }
     
-    // Load available autos and get suggestions for non-zero auto requests
+    // Load available autos - filtered for date range compatibility
     setLoadingAutos(true);
     try {
-      // Get all autos in the area
-      let autosUrl = '/autos';
-      if (selectedRequest.area_id) {
-        autosUrl = `/autos?area_id=${selectedRequest.area_id}`;
+      // Get intelligently filtered autos that don't have overlapping assignments
+      const suggestionResponse = await api.get(`/company-tickets/admin/${selectedRequest.id}/available-autos`);
+      const availableAutosList = suggestionResponse.data.available_autos || [];
+      
+      // Use ONLY the available autos (which already filters by date overlap)
+      setAvailableAutos(availableAutosList);
+      
+      // Pre-select autos up to the requested count
+      // Priority: IDLE first, then ACTIVE, then PREBOOKED
+      const requiredCount = selectedRequest.autos_required || 0;
+      const newSelected = new Set();
+      
+      if (requiredCount > 0) {
+        // First, add IDLE autos
+        const idleAutos = availableAutosList.filter(a => a.display_status === 'IDLE');
+        idleAutos.slice(0, requiredCount).forEach(a => newSelected.add(a.id));
+        
+        // If still need more, add ACTIVE autos
+        if (newSelected.size < requiredCount) {
+          const activeAutos = availableAutosList.filter(a => a.display_status === 'ACTIVE');
+          activeAutos.slice(0, requiredCount - newSelected.size).forEach(a => newSelected.add(a.id));
+        }
+        
+        // If still need more, add PREBOOKED autos
+        if (newSelected.size < requiredCount) {
+          const prebookedAutos = availableAutosList.filter(a => a.display_status === 'PREBOOKED');
+          prebookedAutos.slice(0, requiredCount - newSelected.size).forEach(a => newSelected.add(a.id));
+        }
       }
       
-      const autosResponse = await api.get(autosUrl);
-      setAvailableAutos(autosResponse.data || []);
-      
-      // Get intelligent suggestions from backend
-      const suggestionResponse = await api.get(`/company-tickets/admin/${selectedRequest.id}/available-autos`);
-      const suggestedAutoIds = suggestionResponse.data.available_autos?.map(a => a.id) || [];
-      
-      // Pre-select the suggested autos
-      const newSelected = new Set(suggestedAutoIds);
       setSelectedAutos(newSelected);
       
-      // Store suggestion data for display
-      selectedRequest._suggestionData = suggestionResponse.data;
-      
-      // Show assignment modal instead of approving directly
+      // Show assignment modal
       setShowAutoAssignmentModal(true);
     } catch (err) {
-      console.error('Error loading autos or suggestions:', err);
+      console.error('Error loading available autos:', err);
       alert(err.response?.data?.error || 'Failed to load available autos');
       setSelectedAutos(new Set());
     } finally {
@@ -652,8 +664,14 @@ const CompanyRequestsPage = () => {
                           <p className="font-semibold text-sm">{auto.auto_no}</p>
                           <p className="text-xs text-gray-600">{auto.owner_name} • {auto.area_name}</p>
                         </div>
-                        <Badge variant={auto.status === 'IDLE' ? 'success' : 'info'}>
-                          {auto.status}
+                        <Badge className={
+                          (auto.display_status || auto.status) === 'IDLE' 
+                            ? 'bg-green-100 text-green-800' 
+                            : (auto.display_status || auto.status) === 'ACTIVE'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }>
+                          {auto.display_status || auto.status || 'IDLE'}
                         </Badge>
                       </label>
                     ))}

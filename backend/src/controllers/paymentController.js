@@ -306,8 +306,8 @@ exports.getAvailableAutosForTicketPayment = async (req, res, next) => {
 
     const allAutos = await Auto.findAll(filterCriteria);
 
-    // Filter out already added autos
-    const availableAutos = allAutos.filter(auto => !addedAutoIds.has(auto.id));
+    // Filter out already added autos and blocked (overdue) autos
+    const availableAutos = allAutos.filter(auto => !addedAutoIds.has(auto.id) && !auto.is_blocked);
 
     // Limit to the number of autos still needed
     const autosNeeded = ticket.autos_required - existingPayments.length;

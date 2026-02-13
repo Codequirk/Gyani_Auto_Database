@@ -297,9 +297,10 @@ const AutosPage = () => {
     newEndDate.setHours(0, 0, 0, 0);
     
     // Get available autos for the selected area and date range
-    // Filter autos that are truly available for the selected date range
+    // Filter autos that are truly available for the selected date range AND not blocked
     const available = autos?.filter(auto => 
       auto.area_id === wizardData.area_id && 
+      !auto.is_blocked &&
       isAutoAvailableForDateRange(auto, newStartDate, newEndDate)
     ) || [];
     
@@ -1091,15 +1092,22 @@ const AutosPage = () => {
                     <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
+                        disabled={auto.is_blocked}
                         checked={selectedAutos.has(auto.id)}
                         onChange={() => handleSelectAuto(auto.id)}
+                        title={auto.is_blocked ? 'This auto is blocked for assignments' : ''}
                       />
                     </td>
                     <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                     <td className="px-4 py-2">{auto.owner_name}</td>
                     <td className="px-4 py-2">{auto.area_name}</td>
                     <td className="px-4 py-2">
-                      <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>{auto.display_status || auto.status}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={getStatusBadgeColor(auto.display_status || auto.status)}>{auto.display_status || auto.status}</Badge>
+                        {auto.is_blocked && (
+                          <Badge className="bg-red-100 text-red-800">Blocked</Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2">{auto.current_company || '-'}</td>
                     <td className="px-4 py-2">
@@ -1291,6 +1299,7 @@ const AutosPage = () => {
                       // Get available autos for the selected area and date range (IDLE during assignment period)
                       const available = autos?.filter(auto => 
                         auto.area_id === area.id && 
+                        !auto.is_blocked &&
                         isAutoAvailableForDateRange(auto, newStartDate, newEndDate)
                       ) || [];
                       

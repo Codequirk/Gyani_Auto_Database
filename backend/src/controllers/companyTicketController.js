@@ -355,6 +355,10 @@ exports.getAvailableAutosForTicket = async (req, res, next) => {
     }
     const allAutos = await Auto.findAll(filterCriteria);
     console.log(`  Found ${allAutos.length} autos in area`);
+    console.log(`  Blocked autos: ${allAutos.filter(a => a.is_blocked).length}`);
+    allAutos.filter(a => a.is_blocked).forEach(auto => {
+      console.log(`    - ${auto.auto_no} (blocked)`);
+    });
 
     // ===== STEP 2: Fetch all assignments to check overlaps =====
     const allAssignments = await Assignment.findAll();
@@ -371,6 +375,12 @@ exports.getAvailableAutosForTicket = async (req, res, next) => {
     console.log(`  Ticket date range: ${ticketStartDate.toISOString()} to ${ticketEndDate.toISOString()}`);
 
     const availableAutos = allAutos.filter(auto => {
+      // Skip if auto is blocked (overdue)
+      if (auto.is_blocked) {
+        console.log(`  ⏭️  Skipping blocked auto: ${auto.auto_no} (is_blocked=${auto.is_blocked})`);
+        return false;
+      }
+
       // Check if this auto has any ACTIVE or PREBOOKED assignments overlapping with ticket dates
       const hasConflict = allAssignments.some(assignment => {
         if (assignment.auto_id !== auto.id) return false;

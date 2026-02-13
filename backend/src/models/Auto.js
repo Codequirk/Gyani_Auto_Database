@@ -2,6 +2,7 @@ const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
 const { calculateAutoStatus } = require('../utils/statusCalculator');
 const AutoMonthlyPayment = require('./AutoMonthlyPayment');
+const { isAutoOverdue } = require('../utils/overdueUtils');
 
 class Auto {
   static async findById(id) {
@@ -12,6 +13,15 @@ class Auto {
     if (area) {
       auto.area_name = area.name;
     }
+
+    // Recalculate status dynamically based on current assignments
+    const assignments = await db('assignments').where({ auto_id: id });
+    const currentStatus = calculateAutoStatus(assignments);
+    auto.status = currentStatus;
+
+    // Check if auto is overdue (blocked for new assignments)
+    auto.is_blocked = await isAutoOverdue(id);
+
     return auto;
   }
 
@@ -44,7 +54,11 @@ class Auto {
       if (area) {
         autos[i].area_name = area.name;
       }
-      autos[i] = autos[i];
+      // Check if auto is overdue (blocked for new assignments)
+      autos[i].is_blocked = await isAutoOverdue(autos[i].id);
+      if (autos[i].is_blocked) {
+        console.log(`  🔴 Auto ${autos[i].auto_no} is BLOCKED (overdue payment)`);
+      }
     }
     
     return autos;
@@ -114,6 +128,7 @@ class Auto {
     for (let i = 0; i < autos.length; i++) {
       const area = await db('areas').where({ id: autos[i].area_id }).first();
       if (area) autos[i].area_name = area.name;
+      autos[i].is_blocked = await isAutoOverdue(autos[i].id);
     }
     
     return autos;
@@ -136,6 +151,7 @@ class Auto {
       if (auto) {
         const area = await db('areas').where({ id: auto.area_id }).first();
         if (area) auto.area_name = area.name;
+        auto.is_blocked = await isAutoOverdue(auto.id);
         autosMap.set(auto.id, auto);
       }
     }

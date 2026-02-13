@@ -45,7 +45,7 @@ export const formatDate = (date) => {
 
 export const formatDaysRemaining = (days) => {
   if (days <= 0) {
-    return 'Expired';
+    return '0 days';
   }
   
   // For days > 30, show as "X+ 30 days"

@@ -147,20 +147,26 @@ exports.getAutoMonthlyPayments = async (req, res, next) => {
             
             return {
               ...payment,
+              auto_id: payment.auto_id,
               auto_no: auto?.auto_no || 'Unknown',
               owner_name: auto?.owner_name || 'Unknown',
+              driver_phone: auto?.driver_phone || 'N/A',
               area_name: auto?.area_name || 'Unknown',
               company_name: company?.name || 'Unknown',
+              status: auto?.status || 'IDLE',
             };
           } catch (enrichError) {
             console.warn(`[AUTO-PAYMENT] Error enriching payment ${payment.id}:`, enrichError.message);
             // Return payment with default values if enrichment fails
             return {
               ...payment,
+              auto_id: payment.auto_id,
               auto_no: 'Unknown',
               owner_name: 'Unknown',
+              driver_phone: 'N/A',
               area_name: 'Unknown',
               company_name: 'Unknown',
+              status: 'IDLE',
             };
           }
         })
@@ -172,8 +178,10 @@ exports.getAutoMonthlyPayments = async (req, res, next) => {
         ...p,
         auto_no: 'Unknown',
         owner_name: 'Unknown',
+        driver_phone: 'N/A',
         area_name: 'Unknown',
         company_name: 'Unknown',
+        status: 'IDLE',
       }));
     }
 
