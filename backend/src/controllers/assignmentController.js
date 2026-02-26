@@ -91,7 +91,7 @@ exports.createAssignment = async (req, res, next) => {
     }
 
     const startDate = start_date ? new Date(start_date) : new Date();
-    const endDate = getDateNDaysFromNow(days, startDate);
+    const endDate = getDateNDaysFromNow(days - 1, startDate);
     const totalDays = calculateTotalDays(startDate, endDate);
 
     // Get auto with all assignments for validation
@@ -157,7 +157,7 @@ exports.bulkAssignAutos = async (req, res, next) => {
     }
 
     const startDate = start_date ? new Date(start_date) : new Date();
-    const endDate = getDateNDaysFromNow(days, startDate);
+    const endDate = getDateNDaysFromNow(days - 1, startDate);
     const totalDays = calculateTotalDays(startDate, endDate);
 
     // Validate dates for each auto
@@ -440,19 +440,19 @@ exports.deleteAssignment = async (req, res, next) => {
 
 exports.bulkUpdateAssignments = async (req, res, next) => {
   try {
-    const { auto_ids, company_id, days, start_date } = req.body;
+    const { auto_ids, company_id, days, start_date, cost_per_day } = req.body;
+
+    console.log('[BULK UPDATE] Request body:', JSON.stringify(req.body));
 
     if (!auto_ids || !Array.isArray(auto_ids) || auto_ids.length === 0 || !company_id || !days || !start_date) {
       return res.status(400).json({ error: 'Missing or invalid required fields' });
     }
 
-    // Filter out null/undefined auto_ids
     const validAutoIds = auto_ids.filter(id => id && id !== null && id !== undefined);
     if (validAutoIds.length === 0) {
       return res.status(400).json({ error: 'No valid auto IDs provided' });
     }
 
-    // Get company name
     const Company = require('../models/Company');
     const company = await Company.findById(company_id);
     if (!company) {
@@ -460,44 +460,115 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
     }
 
     const startDate = new Date(start_date);
-    const endDate = getDateNDaysFromNow(days, startDate);
+    const endDate = getDateNDaysFromNow(days - 1, startDate);
     const totalDays = calculateTotalDays(startDate, endDate);
 
-    // Determine status based on start_date
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const checkStartDate = new Date(startDate);
     checkStartDate.setHours(0, 0, 0, 0);
     const assignmentStatus = checkStartDate <= today ? 'ACTIVE' : 'PREBOOKED';
 
-    // Delete all existing assignments for these autos
-    const deletedCount = {};
+    const db = require('../models/db');
+    const Payment = require('../models/Payment');
+    const Area = require('../models/Area');
+    
+    // For each auto:
+    // 1. Get ALL existing assignments (except COMPLETED - keep those)
+    // 2. Delete those assignments and their payments
+    // 3. Create new assignment
+    // 4. Create new payment if cost_per_day provided
+    
+    const deletedAssignments = [];
+    const deletedPayments = [];
+    const newAssignments = [];
+    const newPayments = [];
+
     for (const autoId of validAutoIds) {
-      const result = await Assignment.deleteByAutoId(autoId);
-      deletedCount[autoId] = result.deletedCount || 0;
+      // Get all non-COMPLETED assignments (ACTIVE, PREBOOKED, etc.)
+      const existingAssignments = await db('assignments')
+        .where({ auto_id: autoId })
+        .whereNot({ status: 'COMPLETED' });  // Keep COMPLETED assignments
+      
+      console.log(`[BULK UPDATE] Auto ${autoId}: Found ${existingAssignments.length} non-completed assignments to delete`);
+
+      // Delete payments for these assignments
+      for (const assignment of existingAssignments) {
+        const payments = await db('payments').where({ assignment_id: assignment.id });
+        for (const payment of payments) {
+          await db('payments').where({ id: payment.id }).del();
+          deletedPayments.push(payment);
+          console.log(`[BULK UPDATE] Deleted payment ${payment.id} for assignment ${assignment.id}`);
+        }
+      }
+
+      // Delete these assignments
+      if (existingAssignments.length > 0) {
+        const assignmentIds = existingAssignments.map(a => a.id);
+        await db('assignments').whereIn('id', assignmentIds).del();
+        deletedAssignments.push(...existingAssignments);
+        console.log(`[BULK UPDATE] Deleted ${existingAssignments.length} assignments for auto ${autoId}`);
+      }
+
+      // Create NEW assignment
+      const newAssignment = await db('assignments').insert({
+        id: require('uuid').v4(),
+        auto_id: autoId,
+        company_id: company_id,
+        start_date: formatDateForDb(startDate),
+        end_date: formatDateForDb(endDate),
+        days: totalDays,
+        status: assignmentStatus,
+        created_at: new Date(),
+        updated_at: new Date(),
+      }).returning('*');
+
+      newAssignments.push(newAssignment[0]);
+      console.log(`[BULK UPDATE] Created new assignment for auto ${autoId}`);
+
+      // Create NEW payment if cost_per_day provided
+      if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
+        const auto = await require('../models/Auto').findById(autoId);
+        if (auto && auto.area_id) {
+          const area = await Area.findByIdAsync(auto.area_id);
+          const monthlyPaymentAmount = cost_per_day * totalDays;
+
+          const newPayment = await db('payments').insert({
+            id: require('uuid').v4(),
+            auto_id: autoId,
+            company_id: company_id,
+            assignment_id: newAssignment[0].id,
+            amount: monthlyPaymentAmount,
+            area_id: auto.area_id,
+            status: 'PENDING',
+            payment_date: new Date(),
+            created_at: new Date(),
+            updated_at: new Date(),
+          }).returning('*');
+
+          newPayments.push(newPayment[0]);
+          console.log(`[BULK UPDATE] Created new payment ${newPayment[0].id} for auto ${autoId}`);
+        }
+      }
     }
 
-    // Create new assignments for all autos
-    const assignmentData = validAutoIds.map(auto_id => ({
-      auto_id,
-      company_id,
-      start_date: formatDateForDb(startDate),
-      end_date: formatDateForDb(endDate),
-      days: totalDays,
-      status: assignmentStatus,
-    }));
-
-    const assignments = await Assignment.createBulk(assignmentData);
-
-    // Update auto statuses - recalculate based on current assignments
-    await Promise.all(validAutoIds.map(id => Auto.recalculateAndUpdateStatus(id)));
+    // Recalculate auto statuses
+    await Promise.all(validAutoIds.map(id => require('../models/Auto').recalculateAndUpdateStatus(id)));
 
     res.status(200).json({
-      message: `${assignments.length} assignments updated successfully`,
-      assignments,
-      deletedCount: Object.values(deletedCount).reduce((a, b) => a + b, 0)
+      message: `Successfully updated ${validAutoIds.length} autos. Deleted old assignments and payments, created new ones.`,
+      summary: {
+        autos_updated: validAutoIds.length,
+        assignments_deleted: deletedAssignments.length,
+        payments_deleted: deletedPayments.length,
+        assignments_created: newAssignments.length,
+        payments_created: newPayments.length,
+      },
+      new_assignments: newAssignments,
+      new_payments: newPayments,
     });
   } catch (error) {
+    console.error('[BULK UPDATE] Error:', error);
     next(error);
   }
 };
@@ -703,55 +774,6 @@ exports.bulkAssignAutos = async (req, res, next) => {
     });
   } catch (error) {
     console.error('[BULK] Fatal error:', error);
-    next(error);
-  }
-};
-
-exports.bulkUpdateAssignments = async (req, res, next) => {
-  try {
-    const { assignment_ids, status } = req.body;
-
-    // Validate input
-    if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
-      return res.status(400).json({ error: 'assignment_ids must be a non-empty array' });
-    }
-    if (!status || !['ACTIVE', 'PREBOOKED', 'COMPLETED', 'REJECTED'].includes(status)) {
-      return res.status(400).json({ error: 'Valid status is required (ACTIVE, PREBOOKED, COMPLETED, REJECTED)' });
-    }
-
-    // Update all assignments
-    const updated = [];
-    const autos = new Set();
-
-    for (const assignmentId of assignment_ids) {
-      try {
-        const assignment = await Assignment.updateStatus(assignmentId, status);
-        if (assignment) {
-          updated.push(assignment);
-          if (assignment.auto_id) {
-            autos.add(assignment.auto_id);
-          }
-        }
-      } catch (assignmentError) {
-        console.error(`Error updating assignment ${assignmentId}:`, assignmentError.message);
-      }
-    }
-
-    // Recalculate auto statuses
-    for (const autoId of autos) {
-      try {
-        await Auto.recalculateAndUpdateStatus(autoId);
-      } catch (autoError) {
-        console.error(`Error recalculating auto status for ${autoId}:`, autoError.message);
-      }
-    }
-
-    res.json({
-      message: `Updated ${updated.length} assignments`,
-      assignments: updated,
-      count: updated.length,
-    });
-  } catch (error) {
     next(error);
   }
 };

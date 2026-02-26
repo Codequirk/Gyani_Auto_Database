@@ -140,32 +140,49 @@ export const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
     }
   }
 
-  // ACTIVE/PREBOOKED: check against existing assignments
+  // ACTIVE/PREBOOKED: For ACTIVE autos, check if new assignment must come after current ACTIVE
   if (autoStatus === 'ACTIVE' || autoStatus === 'PREBOOKED') {
-    // Get the most recent active/prebooked assignment
-    const activeAssignments = existingAssignments.filter(a => 
-      a.status === 'ACTIVE' || a.status === 'PREBOOKED'
-    );
+    // Get ONLY ACTIVE assignments (not prebooked) for sequential validation
+    const activeAssignments = existingAssignments.filter(a => a.status === 'ACTIVE');
 
     if (activeAssignments.length > 0) {
-      // Use the latest (most recent) active assignment
-      const latestAssignment = activeAssignments.sort((a, b) => 
+      // Use the most recent active assignment (the one that's actually running now)
+      const latestActiveAssignment = activeAssignments.sort((a, b) => 
         new Date(b.start_date) - new Date(a.start_date)
       )[0];
 
-      const assignedCheck = validateAssignedAutoAssignment(
-        newStartDate,
-        newEndDate,
-        latestAssignment.end_date
-      );
-      if (!assignedCheck.isValid) {
-        return assignedCheck;
+      // Check if the latest ACTIVE assignment is still ongoing (hasn't ended yet)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const latestEnd = new Date(latestActiveAssignment.end_date);
+      latestEnd.setHours(0, 0, 0, 0);
+      const isLatestAssignmentOngoing = latestEnd >= today;
+
+      // Only enforce sequential constraint if new assignment is ACTIVE AND existing is still ongoing
+      const newStartCheck = new Date(newStartDate);
+      newStartCheck.setHours(0, 0, 0, 0);
+      const isNewAssignmentActive = newStartCheck <= today;
+
+      if (isNewAssignmentActive && isLatestAssignmentOngoing) {
+        // Only ACTIVE assignments must come after existing ongoing ACTIVE ends
+        const assignedCheck = validateAssignedAutoAssignment(
+          newStartDate,
+          newEndDate,
+          latestActiveAssignment.end_date
+        );
+        if (!assignedCheck.isValid) {
+          return assignedCheck;
+        }
       }
     }
   }
 
-  // Check for overlaps with any assignment
-  const overlapCheck = validateNoOverlap(existingAssignments, newStartDate, newEndDate);
+  // Check for overlaps - only with ACTIVE and PREBOOKED assignments (not COMPLETED which are free days)
+  let assignmentsToCheckForOverlap = existingAssignments.filter(a => 
+    a.status === 'ACTIVE' || a.status === 'PREBOOKED'
+  );
+
+  const overlapCheck = validateNoOverlap(assignmentsToCheckForOverlap, newStartDate, newEndDate);
   if (!overlapCheck.isValid) {
     return overlapCheck;
   }

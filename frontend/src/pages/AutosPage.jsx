@@ -73,10 +73,10 @@ const AutoActionMenu = ({ auto, onEdit, onDelete, isLoading }) => {
 };
 
 const AutosPage = () => {
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedArea, setSelectedArea] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [search, setSearch] = useState(() => sessionStorage.getItem('autosPage_search') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => sessionStorage.getItem('autosPage_debouncedSearch') || '');
+  const [selectedArea, setSelectedArea] = useState(() => sessionStorage.getItem('autosPage_selectedArea') || '');
+  const [selectedStatus, setSelectedStatus] = useState(() => sessionStorage.getItem('autosPage_selectedStatus') || '');
   const [selectedAutos, setSelectedAutos] = useState(new Set());
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
@@ -86,6 +86,7 @@ const AutosPage = () => {
   const [showAvailableAreas, setShowAvailableAreas] = useState(false);
 
   const debounceTimer = useRef(null);
+  const areasDropdownRef = useRef(null);
   const [assignData, setAssignData] = useState({ company_id: '', days: '', start_date: '', cost_per_day: '' });
   const [bulkEditData, setBulkEditData] = useState({ company_id: '', days: '', start_date: '' });
   const [wizardData, setWizardData] = useState({ 
@@ -125,10 +126,26 @@ const AutosPage = () => {
     }
     debounceTimer.current = setTimeout(() => {
       setDebouncedSearch(search);
+      sessionStorage.setItem('autosPage_debouncedSearch', search);
     }, 300); // 300ms delay for faster response
 
     return () => clearTimeout(debounceTimer.current);
   }, [search]);
+
+  // Persist search filter to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('autosPage_search', search);
+  }, [search]);
+
+  // Persist area filter to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('autosPage_selectedArea', selectedArea);
+  }, [selectedArea]);
+
+  // Persist status filter to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('autosPage_selectedStatus', selectedStatus);
+  }, [selectedStatus]);
 
   const { data: autos, loading: autosLoading, refetch: refetchAutos } = usePolling(
     () => autoService.list({ search: debouncedSearch, area_id: selectedArea, status: selectedStatus }),
@@ -139,6 +156,20 @@ const AutosPage = () => {
     // Re-fetch when filters change
     refetchAutos();
   }, [debouncedSearch, selectedArea, selectedStatus]);
+
+  // Handle click outside areas dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (areasDropdownRef.current && !areasDropdownRef.current.contains(event.target)) {
+        setShowAvailableAreas(false);
+      }
+    }
+
+    if (showAvailableAreas) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAvailableAreas]);
 
   const { data: allAutos } = useFetch(() => autoService.list());
 
@@ -898,9 +929,29 @@ const AutosPage = () => {
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Autos Management</h1>
           <div className="space-x-3">
-            <Button onClick={() => setShowAssignWizardModal(true)}>⚡ Assign Autos</Button>
             <Button onClick={() => navigate('/autos/create')}>+ Add Auto</Button>
           </div>
+        </div>
+
+        {/* Section Tabs */}
+        <div className="mb-6 flex gap-3">
+          <button
+            onClick={() => {}}
+            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
+          >
+            📋 Auto Management
+          </button>
+          <button
+            onClick={() => navigate('/auto-images')}
+            className="px-6 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition flex items-center gap-2"
+          >
+            📸 Image Management
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="mb-6 flex gap-3">
+          <Button onClick={() => setShowAssignWizardModal(true)}>⚡ Assign Autos</Button>
         </div>
 
         {error && <ErrorAlert message={error} />}
@@ -933,7 +984,7 @@ const AutosPage = () => {
             </select>
 
             {/* Available Areas Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={areasDropdownRef}>
               <button
                 onClick={() => setShowAvailableAreas(!showAvailableAreas)}
                 className="w-full text-left px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
@@ -1056,6 +1107,24 @@ const AutosPage = () => {
               </div>
             </div>
           )}
+
+          {/* Clear Filters Button */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <button
+              onClick={() => {
+                setSearch('');
+                setSelectedArea('');
+                setSelectedStatus('');
+                sessionStorage.removeItem('autosPage_search');
+                sessionStorage.removeItem('autosPage_selectedArea');
+                sessionStorage.removeItem('autosPage_selectedStatus');
+                sessionStorage.removeItem('autosPage_debouncedSearch');
+              }}
+              className="px-4 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition"
+            >
+              ✕ Clear All Filters
+            </button>
+          </div>
         </Card>
 
         {/* Autos Table */}

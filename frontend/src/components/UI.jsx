@@ -27,8 +27,8 @@ export const Button = ({ children, variant = 'primary', size = 'md', className, 
   );
 };
 
-export const Card = ({ children, className }) => (
-  <div className={clsx('bg-white rounded-lg shadow-md p-6', className)}>
+export const Card = ({ children, className, ...props }) => (
+  <div className={clsx('bg-white rounded-lg shadow-md p-6', className)} {...props}>
     {children}
   </div>
 );

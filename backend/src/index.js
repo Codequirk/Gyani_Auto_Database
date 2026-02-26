@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const passport = require('passport');
 const { startCleanupScheduler } = require('./services/cleanupService');
 
 const authRoutes = require('./routes/authRoutes');
@@ -21,9 +22,21 @@ const autoMonthlyPaymentRoutes = require('./routes/autoMonthlyPaymentRoutes');
 const companyAuthRoutes = require('./routes/companyAuthRoutes');
 const companyPortalRoutes = require('./routes/companyPortalRoutes');
 const companyTicketRoutes = require('./routes/companyTicketRoutes');
+const autoImageRoutes = require('./routes/autoImageRoutes');
+const autoAuthRoutes = require('./routes/autoAuthRoutes');
+const autoPortalRoutes = require('./routes/autoPortalRoutes');
+const { initializeImageCronJobs } = require('./utils/imageCronJobs');
+const EmailUtils = require('./utils/emailUtils');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
+
+// Initialize email service
+console.log('[STARTUP] Initializing email service...');
+EmailUtils.initializeTransporter();
+
+// Load Passport strategies
+require('./config/passport');
 
 // Middleware
 app.use(cors());
@@ -31,6 +44,9 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Initialize Passport
+app.use(passport.initialize());
 
 // Serve company portal frontend (must be BEFORE API routes so /api routes take precedence)
 const companyPortalPath = path.join(__dirname, '../../company-portal/dist');
@@ -48,6 +64,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/areas', areaRoutes);
 app.use('/api/autos', autoRoutes);
+
+// Debug middleware for auto-images
+app.use('/api/auto-images', (req, res, next) => {
+  console.log(`[AUTO-IMAGES] ${req.method} ${req.path}`);
+  next();
+});
+
+app.use('/api/auto-images', autoImageRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -59,6 +83,10 @@ app.use('/api/auto-monthly-payments', autoMonthlyPaymentRoutes);
 app.use('/api/company-auth', companyAuthRoutes);
 app.use('/api/company-portal', companyPortalRoutes);
 app.use('/api/company-tickets', companyTicketRoutes);
+
+// Auto Portal Routes
+app.use('/api/auto-auth', autoAuthRoutes);
+app.use('/api/auto-portal', autoPortalRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -94,6 +122,16 @@ try {
   console.log('[DEBUG] Cleanup scheduler DISABLED for debugging');
 } catch (err) {
   console.error('[ERROR] Failed to start cleanup scheduler:', err.message);
+}
+
+// Initialize image management cron jobs
+let imageCronJobs = null;
+try {
+  console.log('[DEBUG] Initializing image management cron jobs...');
+  imageCronJobs = initializeImageCronJobs();
+  console.log('[DEBUG] Image cron jobs initialized successfully');
+} catch (err) {
+  console.error('[ERROR] Failed to initialize image cron jobs:', err.message);
 }
 
 const PORT = 5001;  // Hardcoded for testing

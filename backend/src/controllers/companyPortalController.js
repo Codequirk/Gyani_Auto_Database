@@ -151,14 +151,30 @@ exports.getCompanyDashboard = async (req, res, next) => {
       return res.status(404).json({ error: 'Company not found' });
     }
 
-    // Check if company is ACTIVE
+    console.log('[DASHBOARD] Company status:', { id: company_id, status: company.company_status });
+
+    // For non-ACTIVE companies, return limited data with status info
+    // Frontend will handle showing appropriate message based on status
     if (company.company_status !== 'ACTIVE') {
-      return res.status(403).json({ 
-        error: 'Your account is pending admin approval or has been deactivated',
-        status: company.company_status,
+      console.log('[DASHBOARD] Company not active, returning status info');
+      return res.json({
+        summary: {
+          total_assignments: 0,
+          active_assignments: 0,
+          prebooked_assignments: 0,
+          completed_assignments: 0,
+          total_days_assigned: 0,
+          autos_assigned: 0,
+          priority_count: 0,
+        },
+        active_assignments: [],
+        prebooked_assignments: [],
+        completed_assignments: [],
+        pending_tickets: [],
+        company_status: company.company_status,
         message: company.company_status === 'PENDING_APPROVAL' 
           ? 'Please wait for admin to approve your registration. Check back soon!'
-          : 'Your account has been deactivated. Please contact admin.'
+          : 'Your account has been deactivated. Please contact admin.',
       });
     }
 

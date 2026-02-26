@@ -15,6 +15,30 @@ const api = axios.create({
 
 // Add token to requests (handle both admin and company auth)
 api.interceptors.request.use((config) => {
+  // Don't override if Authorization header is already explicitly set
+  if (config.headers.Authorization !== undefined) {
+    console.log(`[API] ${config.method.toUpperCase()} ${config.url} (using custom auth header or explicitly unauthenticated)`);
+    return config;
+  }
+
+  // List of routes that don't require authentication
+  const unauthenticatedRoutes = [
+    '/company-auth/register-email',
+    '/company-auth/verify-otp',
+    '/company-auth/complete-profile',
+    '/company-auth/login',
+    '/company-auth/google-login',
+    '/company-auth/request-password-reset',
+    '/company-auth/reset-password',
+  ];
+
+  const isUnauthenticatedRoute = unauthenticatedRoutes.some(route => config.url.includes(route));
+
+  if (isUnauthenticatedRoute) {
+    console.log(`[API] ${config.method.toUpperCase()} ${config.url} (unauthenticated route)`);
+    return config;
+  }
+
   const adminToken = localStorage.getItem('auth_token');
   const companyToken = localStorage.getItem('company_auth_token');
   
@@ -58,11 +82,6 @@ api.interceptors.response.use(
 export const authService = {
   registerAdmin: (data) => api.post('/auth/register-admin', data),
   login: (data) => api.post('/auth/login', data),
-};
-
-export const companyAuthService = {
-  register: (data) => api.post('/company-auth/register', data),
-  login: (data) => api.post('/company-auth/login', data),
 };
 
 export const adminService = {
@@ -129,6 +148,90 @@ export const companyPortalService = {
 
 export const dashboardService = {
   getSummary: () => api.get('/dashboard/summary'),
+};
+
+export const autoImageService = {
+  getImageSections: () => api.get('/auto-images/image-sections'),
+  uploadImage: (autoId, file) => {
+    const formData = new FormData();
+    formData.append('auto_id', autoId);
+    formData.append('image', file);
+    return api.post('/auto-images/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  deleteImage: (autoId) => api.delete(`/auto-images/delete-image/${autoId}`),
+};
+
+// Company Authentication Service - New OTP-based auth flow
+export const companyAuthService = {
+  // Step 1: Request OTP via email
+  registerEmail: (data) => {
+    console.log('[companyAuthService.registerEmail] Calling:', data);
+    return api.post('/company-auth/register-email', data, {
+      headers: { Authorization: '' } // No auth required for registration
+    });
+  },
+
+  // Step 2: Verify OTP and create user account
+  verifyOTP: (data) => {
+    console.log('[companyAuthService.verifyOTP] Calling:', data);
+    return api.post('/company-auth/verify-otp', data, {
+      headers: { Authorization: '' } // No auth required for OTP verification
+    });
+  },
+
+  // Step 3: Complete profile with password and company details
+  completeProfile: (data) => {
+    console.log('[companyAuthService.completeProfile] Calling:', data);
+    return api.post('/company-auth/complete-profile', data, {
+      headers: { Authorization: '' } // No auth required during registration
+    });
+  },
+
+  // Login with email and password (for existing users)
+  login: (data) => {
+    console.log('[companyAuthService.login] Calling:', data);
+    return api.post('/company-auth/login', data, {
+      headers: { Authorization: '' } // No auth required for login
+    });
+  },
+
+  // Google OAuth login
+  googleLogin: (data) => {
+    console.log('[companyAuthService.googleLogin] Calling');
+    return api.post('/company-auth/google-login', data, {
+      headers: { Authorization: '' } // No auth required for Google login
+    });
+  },
+
+  // Request password reset link
+  requestPasswordReset: (data) => {
+    console.log('[companyAuthService.requestPasswordReset] Calling:', data);
+    return api.post('/company-auth/request-password-reset', data, {
+      headers: { Authorization: '' } // No auth required for password reset request
+    });
+  },
+
+  // Reset password with token
+  resetPassword: (data) => {
+    console.log('[companyAuthService.resetPassword] Calling');
+    return api.post('/company-auth/reset-password', data, {
+      headers: { Authorization: '' } // No auth required for password reset
+    });
+  },
+
+  // Get current user profile (requires auth token)
+  getProfile: () => {
+    console.log('[companyAuthService.getProfile] Calling');
+    return api.get('/company-auth/profile');
+  },
+
+  // Logout (requires auth token)
+  logout: () => {
+    console.log('[companyAuthService.logout] Calling');
+    return api.post('/company-auth/logout', {});
+  },
 };
 
 export default api;

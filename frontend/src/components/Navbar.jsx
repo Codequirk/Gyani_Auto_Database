@@ -20,10 +20,22 @@ const Navbar = () => {
   useEffect(() => {
     const fetchCounts = async () => {
       try {
-        // Fetch pending requests
+        // Fetch pending auto requests
         const response = await api.get('/company-tickets/admin/all');
         const pendingRequests = response.data.filter(r => r.ticket_status === 'PENDING');
-        setPendingCount(pendingRequests.length);
+        
+        // Fetch pending company approval requests
+        let pendingCompanies = [];
+        try {
+          const companiesResponse = await api.get('/companies?status=REQUESTED');
+          pendingCompanies = Array.isArray(companiesResponse.data) ? companiesResponse.data : (companiesResponse.data?.data || []);
+        } catch (err) {
+          console.error('Failed to fetch pending companies:', err);
+        }
+        
+        // Set total pending count (auto requests + company approvals)
+        const totalPending = pendingRequests.length + pendingCompanies.length;
+        setPendingCount(totalPending);
 
         // Fetch auto monthly payments and calculate due soon count
         const paymentsResponse = await api.get('/auto-monthly-payments');

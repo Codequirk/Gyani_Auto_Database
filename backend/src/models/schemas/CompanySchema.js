@@ -10,9 +10,9 @@ const companySchema = new mongoose.Schema({
   emails: { type: [String], default: [] },
   phone_numbers: { type: [String], default: [] },
   password_hash: { type: String, default: null },
-  required_autos: { type: Number, required: true },
-  area_id: { type: String, required: true },
-  days_requested: { type: Number, required: true },
+  required_autos: { type: Number, default: 0 },
+  area_id: { type: String, default: null },
+  days_requested: { type: Number, default: 0 },
   status: { 
     type: String, 
     enum: ['REQUESTED', 'APPROVED', 'REJECTED', 'ACTIVE', 'INACTIVE'],
@@ -25,7 +25,8 @@ const companySchema = new mongoose.Schema({
     default: 'PENDING_APPROVAL',
     index: true
   },
-  created_by_admin_id: { type: String, required: true },
+  rejection_reason: { type: String, default: null },
+  created_by_admin_id: { type: String, default: null },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
   deleted_at: { type: Date, default: null, index: true },

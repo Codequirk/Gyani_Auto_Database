@@ -6,6 +6,21 @@ import { Card, Button, Badge, LoadingSpinner, ErrorAlert, Modal, Input } from '.
 import { formatDate } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 
+// Get backend base URL (strip '/api' from the API URL)
+let BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace('/api', '');
+
+// Ensure it doesn't end with a slash
+if (BACKEND_BASE_URL.endsWith('/')) {
+  BACKEND_BASE_URL = BACKEND_BASE_URL.slice(0, -1);
+}
+
+// Ensure it has a protocol
+if (!BACKEND_BASE_URL.startsWith('http://') && !BACKEND_BASE_URL.startsWith('https://')) {
+  BACKEND_BASE_URL = 'http://localhost:5001';
+}
+
+console.log('[CompanyRequestsPage] BACKEND_BASE_URL:', BACKEND_BASE_URL);
+
 const CompanyRequestsPage = () => {
   const { admin } = useAuth();
   const [requests, setRequests] = useState([]);
@@ -23,6 +38,10 @@ const CompanyRequestsPage = () => {
   const [availableAutos, setAvailableAutos] = useState([]);
   const [selectedAutosSet, setSelectedAutosSet] = useState(new Set());
   const [loadingAutos, setLoadingAutos] = useState(false);
+  const [detailsModalPayments, setDetailsModalPayments] = useState([]);
+  const [detailsModalPaymentLoading, setDetailsModalPaymentLoading] = useState(false);
+  const [autoImages, setAutoImages] = useState({}); // Map of autoId -> image data
+  const [fullViewImage, setFullViewImage] = useState(null); // For full-screen image modal
 
   useEffect(() => {
     fetchRequests();
@@ -53,10 +72,42 @@ const CompanyRequestsPage = () => {
     }
   };
 
-  const handleViewDetails = (request) => {
+  const handleViewDetails = async (request) => {
     setSelectedRequest(request);
     setShowDetailsModal(true);
     setAdminNotes(request.admin_notes || '');
+    
+    // Fetch images for all autos in this request
+    if (request.autos && request.autos.length > 0) {
+      try {
+        const response = await api.get('/auto-images/image-sections');
+        const sections = response.data;
+        const imagesMap = {};
+        
+        // Search all 3 sections for images of autos in this request
+        const allAutos = [...(sections.missing || []), ...(sections.buffer || []), ...(sections.uploaded || [])];
+        request.autos.forEach((auto) => {
+          const autoData = allAutos.find(a => a.id === auto.id);
+          if (autoData && autoData.image_url) {
+            imagesMap[auto.id] = {
+              image_url: autoData.image_url,
+              image_upload_date: autoData.image_upload_date,
+              image_week_number: autoData.image_week_number,
+              image_status: autoData.image_status,
+            };
+          }
+        });
+        setAutoImages(imagesMap);
+      } catch (err) {
+        console.error('Failed to fetch auto images:', err);
+        setAutoImages({});
+      }
+    } else {
+      setAutoImages({});
+    }
+    
+    // No payment fetching needed for company-portal
+    setDetailsModalPayments([]);
   };
 
   const handleUpdateNotes = async () => {
@@ -316,97 +367,345 @@ const CompanyRequestsPage = () => {
           setShowApprovalModal(false);
           setAdminNotes('');
         }}
-        title={`Request Details - ${selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 ? 'Registration Request' : `${selectedRequest?.autos_required} Autos`}`}
+        title={
+          selectedRequest?.ticket_status === 'REJECTED' 
+            ? 'Rejection Details'
+            : selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 
+              ? 'Registration Request Details' 
+              : `Auto Request Details - ${selectedRequest?.autos_required} Autos`
+        }
       >
         {selectedRequest && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded">
-              <div>
-                <p className="text-sm text-gray-600">Company</p>
-                <p className="text-lg font-semibold">{selectedRequest.company?.name || 'Unknown'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Area</p>
-                <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
-              </div>
-              {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
-                <>
-                  <div>
-                    <p className="text-sm text-gray-600">Autos Required</p>
-                    <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Days Required</p>
-                    <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
-                  </div>
-                </>
-              )}
-              <div>
-                <p className="text-sm text-gray-600">Start Date</p>
-                <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <Badge>{selectedRequest.ticket_status}</Badge>
-              </div>
-            </div>
-
-            {selectedRequest.notes && (
-              <div>
-                <p className="font-semibold text-gray-900">Company Notes:</p>
-                <p className="mt-1 text-gray-700">{selectedRequest.notes}</p>
+            {/* REJECTED REQUEST - Show only rejection reason */}
+            {selectedRequest.ticket_status === 'REJECTED' && (
+              <div className="bg-red-50 p-4 rounded border border-red-200">
+                <div className="mb-4 pb-4 border-b border-red-200">
+                  <p className="text-sm text-gray-600">Company</p>
+                  <p className="text-lg font-semibold text-gray-900">{selectedRequest.company?.name || 'Unknown'}</p>
+                </div>
+                
+                <div className="bg-white p-3 rounded">
+                  <p className="text-sm font-semibold text-red-900 mb-2">Rejection Reason:</p>
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {selectedRequest.admin_notes || 'No reason provided'}
+                  </p>
+                </div>
               </div>
             )}
 
-            {/* Admin Notes Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Admin Notes
-              </label>
-              <textarea
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-                placeholder="Add your notes here"
-                rows="3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <Button
-                onClick={handleUpdateNotes}
-                variant="secondary"
-                className="mt-2"
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Saving...' : 'Save Notes'}
-              </Button>
-            </div>
-
-            {/* Rejection Reason (if needed) */}
-            {showApprovalModal && selectedRequest.ticket_status === 'PENDING' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Rejection Reason (if rejecting)
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Explain why this request is being rejected"
-                  rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
+            {/* APPROVED COMPANY-ONLY REQUEST (Registration) - Show basic company info */}
+            {selectedRequest.ticket_status === 'APPROVED' && 
+             selectedRequest.autos_required === 0 && 
+             selectedRequest.days_required === 0 && (
+              <div className="bg-green-50 p-4 rounded border border-green-200">
+                <h3 className="font-bold text-green-900 mb-4">Company Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Company Name</p>
+                    <p className="text-lg font-semibold text-gray-900">{selectedRequest.company?.name || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Email</p>
+                    <p className="text-sm text-gray-900 break-all">{selectedRequest.company?.email || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Contact Person</p>
+                    <p className="text-sm text-gray-900">{selectedRequest.company?.contact_person || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Phone</p>
+                    <p className="text-sm text-gray-900">{selectedRequest.company?.phone_number || 'N/A'}</p>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* APPROVED AUTO REQUEST - Show payment/cost details */}
+            {selectedRequest.ticket_status === 'APPROVED' && 
+             selectedRequest.autos_required > 0 && (
+              <div className="bg-blue-50 p-4 rounded border border-blue-200 space-y-4">
+                <h3 className="font-bold text-blue-900 mb-4">Assignment & Payment Details</h3>
+                
+                {/* Company & Request Summary */}
+                <div className="bg-white p-4 rounded border border-blue-100">
+                  <h4 className="font-semibold text-gray-900 mb-3">Request Summary</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Company</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.company?.name || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">{selectedRequest.company?.email || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Contact</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.company?.contact_person || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">{selectedRequest.company?.phone_number || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Area Required</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.area_name || 'Any Area'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Duration</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.days_required} days</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Start Date</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatDate(selectedRequest.start_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">End Date</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedRequest.start_date && selectedRequest.days_required
+                          ? formatDate(new Date(new Date(selectedRequest.start_date).getTime() + (selectedRequest.days_required - 1) * 24 * 60 * 60 * 1000))
+                          : 'N/A'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignment Summary */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Autos Assigned</p>
+                    <p className="text-2xl font-bold text-blue-900">{selectedRequest.autos_required}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Duration</p>
+                    <p className="text-2xl font-bold text-blue-900">{selectedRequest.days_required} days</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Assigned Autos</p>
+                    <p className="text-2xl font-bold text-blue-900">{selectedRequest.autos?.length || 0}</p>
+                  </div>
+                </div>
+
+                {/* Assigned Autos with Payment Details */}
+                {selectedRequest.autos && selectedRequest.autos.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="bg-white p-3 rounded">
+                      <p className="font-semibold text-gray-900 mb-3 text-sm border-b pb-2">Assigned Autos</p>
+                      <div className="space-y-3">
+                        {selectedRequest.autos.map((auto, index) => {
+                          const costPerDay = auto.cost_per_day || 0;
+                          const totalCost = costPerDay * selectedRequest.days_required;
+                          const autoImage = autoImages[auto.id];
+                          return (
+                            <div key={auto.id} className="border border-blue-200 p-3 rounded bg-gradient-to-r from-blue-50 to-transparent">
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <p className="font-bold text-gray-900 text-sm">{index + 1}. {auto.registration_number || 'N/A'}</p>
+                                  <p className="text-xs text-gray-600">{auto.model || 'Model N/A'}</p>
+                                </div>
+                                <Badge className="bg-blue-100 text-blue-900 text-xs">{auto.area_name || 'Any'}</Badge>
+                              </div>
+                              
+                              {/* Auto Image Section */}
+                              {autoImage && (
+                                <div className="mb-3 p-2 bg-white rounded border border-gray-200">
+                                  <p className="text-xs font-semibold text-gray-600 mb-2">Weekly Image</p>
+                                  <div className="relative">
+                                    <img 
+                                      src={`${BACKEND_BASE_URL}${autoImage.image_url}`} 
+                                      alt={auto.registration_number}
+                                      className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-80 transition"
+                                      onDoubleClick={() => setFullViewImage(autoImage)}
+                                      title="Double-click to view full size"
+                                    />
+                                  </div>
+                                  <div className="mt-2 text-xs text-gray-600 space-y-1">
+                                    {autoImage.image_upload_date && (
+                                      <p>📅 {new Date(autoImage.image_upload_date).toLocaleDateString('en-IN')}</p>
+                                    )}
+                                    {autoImage.image_week_number && (
+                                      <p>📆 Week {autoImage.image_week_number}</p>
+                                    )}
+                                    {autoImage.image_status && (
+                                      <p>
+                                        Status: 
+                                        <span className={`ml-1 px-2 py-0.5 rounded text-white text-xs font-bold ${
+                                          autoImage.image_status === 'UPLOADED' ? 'bg-green-500' :
+                                          autoImage.image_status === 'BUFFER' ? 'bg-yellow-500' :
+                                          'bg-red-500'
+                                        }`}>
+                                          {autoImage.image_status}
+                                        </span>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              <div className="grid grid-cols-4 gap-2 text-xs">
+                                <div className="bg-white p-2 rounded">
+                                  <p className="text-gray-600 font-semibold">Cost/Day</p>
+                                  <p className="text-green-600 font-bold">₹{costPerDay?.toLocaleString('en-IN') || '0'}</p>
+                                </div>
+                                <div className="bg-white p-2 rounded">
+                                  <p className="text-gray-600 font-semibold">Days</p>
+                                  <p className="text-blue-600 font-bold">{selectedRequest.days_required}</p>
+                                </div>
+                                <div className="bg-white p-2 rounded">
+                                  <p className="text-gray-600 font-semibold">Total</p>
+                                  <p className="text-purple-600 font-bold">₹{totalCost?.toLocaleString('en-IN') || '0'}</p>
+                                </div>
+                                <div className="bg-white p-2 rounded">
+                                  <p className="text-gray-600 font-semibold">Status</p>
+                                  <p className="text-blue-600 font-bold text-xs">{auto.status || 'Active'}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Total Payment Summary */}
+                    {selectedRequest.autos.length > 0 && (
+                      <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded border border-green-200">
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-gray-600 mb-1">Total Autos</p>
+                            <p className="text-2xl font-bold text-blue-900">{selectedRequest.autos.length}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-gray-600 mb-1">Total Days</p>
+                            <p className="text-2xl font-bold text-blue-900">{selectedRequest.days_required}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-gray-600 mb-1">Total Cost</p>
+                            <p className="text-2xl font-bold text-green-600">
+                              ₹{(selectedRequest.autos.reduce((sum, a) => sum + ((a.cost_per_day || 0) * selectedRequest.days_required), 0)).toLocaleString('en-IN')}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(!selectedRequest.autos || selectedRequest.autos.length === 0) && (
+                  <div className="bg-white p-4 rounded text-center text-gray-500 text-sm border border-dashed border-gray-300">
+                    <p>No autos assigned yet</p>
+                    <p className="text-xs text-gray-400 mt-1">Autos will appear here once assignment is completed</p>
+                  </div>
+                )}
+              </div>
+            )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <p className="text-xs text-gray-600">Cost/Day</p>
+                            <p className="font-bold text-green-600">₹{auto.cost_per_day?.toLocaleString('en-IN') || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-600">Status</p>
+                            <p className="font-semibold text-blue-900">{auto.status || 'Active'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(!selectedRequest.autos || selectedRequest.autos.length === 0) && (
+                  <div className="bg-white p-3 rounded text-center text-gray-500 text-sm">
+                    No auto details available
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PENDING REQUEST - Show full details with action buttons */}
             {selectedRequest.ticket_status === 'PENDING' && (
-              <div className="flex gap-3">
-                <Button
-                  onClick={handleApprove}
-                  variant="success"
-                  disabled={actionLoading || loadingAutos}
-                  className="flex-1"
-                >
-                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Approve & Assign'}
-                </Button>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded">
+                  <div>
+                    <p className="text-sm text-gray-600">Company</p>
+                    <p className="text-lg font-semibold">{selectedRequest.company?.name || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Area</p>
+                    <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
+                  </div>
+                  {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
+                    <>
+                      <div>
+                        <p className="text-sm text-gray-600">Autos Required</p>
+                        <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Days Required</p>
+                        <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <p className="text-sm text-gray-600">Start Date</p>
+                    <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Status</p>
+                    <Badge>{selectedRequest.ticket_status}</Badge>
+                  </div>
+                </div>
+
+                {selectedRequest.notes && (
+                  <div>
+                    <p className="font-semibold text-gray-900">Company Notes:</p>
+                    <p className="mt-1 text-gray-700">{selectedRequest.notes}</p>
+                  </div>
+                )}
+
+                {/* Admin Notes Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Admin Notes
+                  </label>
+                  <textarea
+                    value={adminNotes}
+                    onChange={(e) => setAdminNotes(e.target.value)}
+                    placeholder="Add your notes here"
+                    rows="3"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <Button
+                    onClick={handleUpdateNotes}
+                    variant="secondary"
+                    className="mt-2"
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? 'Saving...' : 'Save Notes'}
+                  </Button>
+                </div>
+
+                {/* Rejection Reason (if needed) */}
+                {showApprovalModal && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Rejection Reason (if rejecting)
+                    </label>
+                    <textarea
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Explain why this request is being rejected"
+                      rows="3"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handleApprove}
+                    variant="success"
+                    disabled={actionLoading || loadingAutos}
+                    className="flex-1"
+                  >
+                    {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Approve & Assign'}
+                  </Button>
                 <Button
                   onClick={() => setShowApprovalModal(!showApprovalModal)}
                   variant="danger"
@@ -440,6 +739,39 @@ const CompanyRequestsPage = () => {
           </div>
         )}
       </Modal>
+
+      {/* Full-Screen Image Modal */}
+      {fullViewImage && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4"
+          onClick={() => setFullViewImage(null)}
+        >
+          <div 
+            className="max-w-4xl max-h-screen relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setFullViewImage(null)}
+              className="absolute top-4 right-4 text-white bg-black bg-opacity-50 hover:bg-opacity-75 rounded-full p-2 z-10"
+            >
+              ✕
+            </button>
+            <img 
+              src={`${BACKEND_BASE_URL}${fullViewImage.image_url}`} 
+              alt="Full view"
+              className="w-full h-full object-contain"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 text-white p-3 text-sm">
+              {fullViewImage.image_upload_date && (
+                <p>📅 Uploaded: {new Date(fullViewImage.image_upload_date).toLocaleDateString('en-IN')}</p>
+              )}
+              {fullViewImage.image_week_number && (
+                <p>📆 Week {fullViewImage.image_week_number}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Auto Selection Modal - Clean Implementation */}
       <Modal

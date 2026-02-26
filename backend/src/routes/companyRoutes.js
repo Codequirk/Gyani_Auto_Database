@@ -10,4 +10,8 @@ router.post('/', authMiddleware, companyController.createCompany);
 router.patch('/:id', authMiddleware, companyController.updateCompany);
 router.delete('/:id', authMiddleware, companyController.deleteCompany);
 
+// Company approval/rejection (for pending registrations)
+router.post('/:id/approve', authMiddleware, companyController.approveCompany);
+router.post('/:id/reject', authMiddleware, companyController.rejectCompany);
+
 module.exports = router;

@@ -7,6 +7,21 @@ import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStat
 import Navbar from '../components/Navbar';
 import AssignmentCalendar from '../components/AssignmentCalendar';
 
+// Get backend base URL (strip '/api' from the API URL)
+let BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace('/api', '');
+
+// Ensure it doesn't end with a slash
+if (BACKEND_BASE_URL.endsWith('/')) {
+  BACKEND_BASE_URL = BACKEND_BASE_URL.slice(0, -1);
+}
+
+// Ensure it has a protocol
+if (!BACKEND_BASE_URL.startsWith('http://') && !BACKEND_BASE_URL.startsWith('https://')) {
+  BACKEND_BASE_URL = 'http://localhost:5001';
+}
+
+console.log('[AutoDetailPage] BACKEND_BASE_URL:', BACKEND_BASE_URL);
+
 const AssignmentActionMenu = ({ assignment, onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
@@ -90,6 +105,9 @@ const AutoDetailPage = () => {
   const [imageError, setImageError] = useState('');
   const [imageSuccess, setImageSuccess] = useState('');
   const [advertisements, setAdvertisements] = useState({});
+  const [autoImage, setAutoImage] = useState(null);
+  const [autoImageLoading, setAutoImageLoading] = useState(false);
+  const [fullViewImage, setFullViewImage] = useState(null);
   const { data: auto, loading, error, refetch } = useFetch(
     () => autoService.get(id),
     [id]
@@ -104,6 +122,46 @@ const AutoDetailPage = () => {
   // Load advertisement images for the current assignment
   useEffect(() => {
     if (auto?.id) {
+      // Load weekly auto image
+      const loadAutoImage = async () => {
+        try {
+          setAutoImageLoading(true);
+          const token = localStorage.getItem('auth_token');
+          const response = await fetch(`/api/auto-images/image-sections`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[AutoDetailPage] Image sections loaded:', {
+              total: data.summary.total,
+              missing: data.summary.missing,
+              buffer: data.summary.buffer,
+              uploaded: data.summary.uploaded
+            });
+            // Find this auto in any section
+            for (const section of Object.values(data.sections)) {
+              const foundAuto = section.find(a => a.id === auto.id);
+              if (foundAuto && foundAuto.image_url) {
+                console.log('[AutoDetailPage] Found auto image:', {
+                  auto_no: foundAuto.auto_no,
+                  image_url: foundAuto.image_url,
+                  section: foundAuto.section
+                });
+                setAutoImage(foundAuto);
+                break;
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error loading auto image:', err);
+        } finally {
+          setAutoImageLoading(false);
+        }
+      };
+      
+      loadAutoImage();
+      
       const currentAssignment = auto.assignments
         ?.filter(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED')
         .sort((a, b) => new Date(a.start_date) - new Date(b.start_date))[0];
@@ -136,6 +194,20 @@ const AutoDetailPage = () => {
       }
     }
   }, [auto?.id, auto?.assignments]);
+
+  // Handle Escape key to close full-screen image
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        setFullViewImage(null);
+      }
+    };
+
+    if (fullViewImage) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [fullViewImage]);
 
   if (loading) return <LoadingSpinner />;
   if (error) return <ErrorAlert message={error} />;
@@ -297,9 +369,10 @@ const AutoDetailPage = () => {
       return;
     }
 
-    // Validate file type
-    if (file.type !== 'image/png') {
-      setImageError('Only PNG files are allowed');
+    // Validate file type (PNG, JPG, WebP)
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      setImageError('Only PNG, JPG, and WebP files are allowed');
       return;
     }
 
@@ -322,10 +395,11 @@ const AutoDetailPage = () => {
       }
 
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('image', file);
 
+      // Upload using image management API - this will move auto to UPLOADED section
       const response = await fetch(
-        `/api/autos/${auto.id}/advertisement-image`,
+        `/api/auto-images/${auto.id}/upload-image`,
         {
           method: 'POST',
           headers: {
@@ -337,14 +411,51 @@ const AutoDetailPage = () => {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.message || 'Failed to upload image');
+        throw new Error(data.error || data.message || 'Failed to upload image');
       }
 
       const data = await response.json();
-      setAdvertisements(prev => ({ ...prev, [currentAssignment.id]: data.image }));
-      setImageSuccess('Image uploaded successfully!');
+      
+      console.log('[Upload] Response data:', data);
+      
+      // Update local state with new image - with cache busting
+      const imageUrlWithTimestamp = `${data.auto.imageUrl}?t=${Date.now()}`;
+      setAutoImage({
+        id: auto.id,
+        auto_no: auto.auto_no,
+        image_url: imageUrlWithTimestamp,
+        uploadedDate: data.auto.uploadedDate,
+        weekNumber: data.auto.weekNumber,
+        year: data.auto.year,
+        section: data.auto.section
+      });
+      
+      console.log('[Upload] Updated autoImage state:', {
+        image_url: imageUrlWithTimestamp,
+        uploadedDate: data.auto.uploadedDate
+      });
+      
+      setImageSuccess('Image uploaded successfully! Auto moved to UPLOADED section.');
+      
+      // Refetch the auto data to ensure latest image is loaded
+      setTimeout(async () => {
+        try {
+          console.log('[Upload] Refetching auto data...');
+          const response = await fetch(`/api/autos/${auto.id}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
+          });
+          if (response.ok) {
+            const updatedAuto = await response.json();
+            console.log('[Upload] Auto refetched, current data:', updatedAuto);
+          }
+        } catch (err) {
+          console.error('[Upload] Error refetching auto:', err);
+        }
+      }, 1000);
+      
       setTimeout(() => setImageSuccess(''), 3000);
     } catch (err) {
+      console.error('Upload error:', err);
       setImageError(err.message || 'Failed to upload image');
     } finally {
       setUploadingImage(false);
@@ -352,12 +463,12 @@ const AutoDetailPage = () => {
   };
 
   const handleImageDelete = async () => {
-    if (!currentAssignment || !advertisements[currentAssignment.id]) {
+    if (!autoImage || !autoImage.image_url) {
       setImageError('No image to delete');
       return;
     }
 
-    if (!window.confirm('Are you sure you want to delete this advertisement image?')) {
+    if (!window.confirm('Are you sure you want to delete this image? It will move back to MISSING section.')) {
       return;
     }
 
@@ -374,7 +485,7 @@ const AutoDetailPage = () => {
       }
 
       const response = await fetch(
-        `/api/autos/${auto.id}/advertisement-image`,
+        `/api/auto-images/${auto.id}/delete-image`,
         {
           method: 'DELETE',
           headers: {
@@ -385,17 +496,15 @@ const AutoDetailPage = () => {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.message || 'Failed to delete image');
+        throw new Error(data.error || data.message || 'Failed to delete image');
       }
 
-      setAdvertisements(prev => {
-        const updated = { ...prev };
-        delete updated[currentAssignment.id];
-        return updated;
-      });
-      setImageSuccess('Image deleted successfully!');
+      // Clear auto image - it moved to MISSING section
+      setAutoImage(null);
+      setImageSuccess('Image deleted successfully! Auto moved to MISSING section.');
       setTimeout(() => setImageSuccess(''), 3000);
     } catch (err) {
+      console.error('Delete error:', err);
       setImageError(err.message || 'Failed to delete image');
     } finally {
       setUploadingImage(false);
@@ -462,6 +571,8 @@ const AutoDetailPage = () => {
             </div>
           </Card>
 
+
+
           {/* Current Assignment */}
           {currentAssignment && (
             <Card className="bg-blue-50 border-2 border-blue-200">
@@ -501,7 +612,7 @@ const AutoDetailPage = () => {
             </Card>
           )}
 
-          {/* Advertisement Image Section - Only for ACTIVE autos with current assignment */}
+          {/* Advertisement Image Section - Shows images from Image Management */}
           {currentAssignment && currentAssignment.status === 'ACTIVE' && (
             <Card className="bg-purple-50 border-2 border-purple-200">
               <h2 className="text-xl font-semibold mb-4 text-purple-900">📢 Advertisement Image</h2>
@@ -518,20 +629,44 @@ const AutoDetailPage = () => {
               )}
 
               <div className="space-y-4">
-                {advertisements[currentAssignment.id] ? (
+                {autoImage && autoImage.image_url ? (
                   <div>
-                    <p className="text-sm text-gray-600 mb-3">Current Advertisement:</p>
-                    <div className="relative inline-block">
-                      <img 
-                        src={`/api/autos/${auto.id}/advertisement-image?t=${Date.now()}`}
-                        alt="Advertisement"
-                        className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
-                        title="Double-click to view full size"
-                        onDoubleClick={() => {
-                          const win = window.open(`/api/autos/${auto.id}/advertisement-image`, '_blank');
-                          win.focus();
-                        }}
-                      />
+                    <p className="text-sm text-gray-600 mb-3">Current Image:</p>
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <img 
+                          src={`${BACKEND_BASE_URL}${autoImage.image_url}`}
+                          alt={auto.auto_no}
+                          className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
+                          title="Double-click to view full size"
+                          onDoubleClick={() => setFullViewImage(autoImage.image_url)}
+                          onError={(e) => {
+                            console.error('[AutoDetailPage] Image failed to load:', {
+                              url: autoImage.image_url,
+                              auto: auto.auto_no,
+                              error: e.type
+                            });
+                            e.target.style.border = '2px solid red';
+                          }}
+                          onLoad={() => {
+                            console.log('[AutoDetailPage] Image loaded successfully:', autoImage.image_url);
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-gray-600 text-sm">Uploaded Date</p>
+                        <p className="text-lg font-medium mb-4">{autoImage.uploadedDate || 'N/A'}</p>
+                        <p className="text-gray-600 text-sm">Week Number</p>
+                        <p className="text-lg font-medium mb-4">Week {autoImage.weekNumber}/{autoImage.year}</p>
+                        <p className="text-gray-600 text-sm">Status</p>
+                        <Badge className={
+                          autoImage.section === 'UPLOADED' ? 'bg-green-100 text-green-800' :
+                          autoImage.section === 'BUFFER' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }>
+                          {autoImage.section}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="mt-4 space-x-2">
                       <Button 
@@ -544,7 +679,7 @@ const AutoDetailPage = () => {
                       <input 
                         id="advertisement-file-input-replace"
                         type="file" 
-                        accept=".png,image/png"
+                        accept=".png,image/png,.jpg,.jpeg,.webp"
                         onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
                         disabled={uploadingImage}
                         className="hidden"
@@ -560,19 +695,19 @@ const AutoDetailPage = () => {
                   </div>
                 ) : (
                   <div>
-                    <p className="text-sm text-gray-600 mb-3">No advertisement image uploaded yet.</p>
+                    <p className="text-sm text-gray-600 mb-3">No image uploaded yet. Upload from Image Management page.</p>
                     <div>
                       <Button 
                         disabled={uploadingImage} 
                         className="cursor-pointer"
                         onClick={() => document.getElementById('advertisement-file-input').click()}
                       >
-                        {uploadingImage ? 'Uploading...' : '📤 Upload Advertisement (PNG)'}
+                        {uploadingImage ? 'Uploading...' : '📤 Upload Image'}
                       </Button>
                       <input 
                         id="advertisement-file-input"
                         type="file" 
-                        accept=".png,image/png"
+                        accept=".png,image/png,.jpg,.jpeg,.webp"
                         onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
                         disabled={uploadingImage}
                         className="hidden"
@@ -957,6 +1092,32 @@ const AutoDetailPage = () => {
               </div>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* Full-screen image preview modal */}
+      {fullViewImage && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999]"
+          onClick={() => setFullViewImage(null)}
+        >
+          <div 
+            className="relative max-w-4xl max-h-[90vh] flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img 
+              src={`${BACKEND_BASE_URL}${fullViewImage}`}
+              alt="Full view"
+              className="max-w-full max-h-[90vh] object-contain"
+            />
+            <button
+              onClick={() => setFullViewImage(null)}
+              className="absolute top-4 right-4 bg-red-500 hover:bg-red-600 text-white rounded-full w-10 h-10 flex items-center justify-center text-2xl font-bold transition-colors z-[10000]"
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </div>

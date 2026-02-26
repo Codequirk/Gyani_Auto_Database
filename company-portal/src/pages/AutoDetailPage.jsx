@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
-import { autoService, assignmentService, companyService } from '../services/api';
+import { autoService, assignmentService, companyService, autoImageService } from '../services/api';
 import { Card, Button, Badge, ErrorAlert, LoadingSpinner, Input, Modal } from '../components/UI';
 import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
@@ -68,45 +68,50 @@ const AutoDetailPage = () => {
   );
   const { data: companies } = useFetch(() => companyService.list());
 
-  // Check if advertisement image exists for this auto
+  // Load auto image from image management system
   useEffect(() => {
-    if (auto?.id && auto?.status === 'ACTIVE') {
-      const currentAssignment = auto.assignments?.find(a => a.status === 'ACTIVE' || a.status === 'PREBOOKED');
-      
-      if (currentAssignment) {
-        const checkAdvertisement = async () => {
-          try {
-            setAdLoading(true);
-            // Check if image exists by attempting to fetch it
-            const response = await fetch(`/api/autos/${auto.id}/advertisement-image`, {
-              method: 'GET'
-            });
-            
-            if (response.ok) {
-              // Image exists, set a marker to display it
-              console.log('[AUTO-DETAIL] Advertisement image found for auto:', auto.id);
-              setAdvertisement({ exists: true });
-            } else if (response.status === 404) {
-              // Image doesn't exist
-              console.log('[AUTO-DETAIL] No advertisement image for auto:', auto.id);
-              setAdvertisement(null);
-            } else {
-              // Other error
-              console.warn('[AUTO-DETAIL] Unexpected response checking image:', response.status);
-              setAdvertisement(null);
+    if (auto?.id) {
+      const loadAutoImage = async () => {
+        try {
+          setAdLoading(true);
+          // Fetch from the image sections endpoint (same as admin panel)
+          const response = await autoImageService.getImageSections();
+          
+          if (response.data) {
+            const data = response.data;
+            // Search all 3 sections for this auto's image
+            for (const section of Object.values(data.sections)) {
+              const foundAuto = section.find(a => a.id === auto.id);
+              if (foundAuto && foundAuto.image_url) {
+                console.log('[AUTO-DETAIL] Image found for auto:', {
+                  auto_no: foundAuto.auto_no,
+                  section: foundAuto.section,
+                  image_url: foundAuto.image_url
+                });
+                setAdvertisement({ 
+                  exists: true,
+                  image_url: foundAuto.image_url,
+                  image_upload_date: foundAuto.uploadedDate,
+                  image_week_number: foundAuto.weekNumber,
+                  image_year: foundAuto.year,
+                  section: foundAuto.section
+                });
+                break;
+              }
             }
-          } catch (err) {
-            // Network error or other issue
-            console.error('[AUTO-DETAIL] Error checking advertisement image:', err);
+          } else {
+            console.warn('[AUTO-DETAIL] Failed to fetch image sections: no data');
             setAdvertisement(null);
-          } finally {
-            setAdLoading(false);
           }
-        };
-        checkAdvertisement();
-      } else {
-        setAdvertisement(null);
-      }
+        } catch (err) {
+          console.error('[AUTO-DETAIL] Error loading image:', err.message);
+          setAdvertisement(null);
+        } finally {
+          setAdLoading(false);
+        }
+      };
+      
+      loadAutoImage();
     } else {
       setAdvertisement(null);
     }
@@ -268,56 +273,15 @@ const AutoDetailPage = () => {
     <div>
       <Navbar />
       <div className="max-w-4xl mx-auto p-4 mt-8">
-        {/* Check if image exists - show only image section or "no image" message */}
-        {currentAssignment && auto.status === 'ACTIVE' && advertisement ? (
-          // Image exists - show only the image
-          <Card className="bg-purple-50 border-2 border-purple-200">
-            <h2 className="text-xl font-semibold mb-4 text-purple-900">📢 Advertisement</h2>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600">Advertisement from {currentAssignment.company_name}:</p>
-              <div className="relative inline-block">
-                <img 
-                  src={`/api/autos/${auto.id}/advertisement-image?t=${Date.now()}`}
-                  alt="Advertisement"
-                  className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
-                  title="Double-click to view full size"
-                  onDoubleClick={() => {
-                    const win = window.open(`/api/autos/${auto.id}/advertisement-image`, '_blank');
-                    win.focus();
-                  }}
-                />
-              </div>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
+        {/* Always show full details - no advertisement section for company portal */}
+        <>
+          {/* Header with Calendar Toggle */}
+          <div className="flex items-center gap-4 mb-6 justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="secondary" onClick={() => navigate('/dashboard')}>
                 ← Back to Dashboard
-              </button>
-            </div>
-          </Card>
-        ) : currentAssignment && auto.status === 'ACTIVE' ? (
-          // No image - show message
-          <Card className="bg-gray-50 border-2 border-gray-300">
-            <div className="text-center py-12">
-              <p className="text-lg text-gray-700 mb-4">📭 No advertisement image has been uploaded for this auto yet.</p>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
-                ← Back to Dashboard
-              </button>
-            </div>
-          </Card>
-        ) : (
-          // Not ACTIVE or no current assignment - show full details
-          <>
-            {/* Header with Calendar Toggle */}
-            <div className="flex items-center gap-4 mb-6 justify-between">
-              <div className="flex items-center gap-4">
-                <Button variant="secondary" onClick={() => navigate('/dashboard')}>
-                  ← Back to Dashboard
-                </Button>
-                <h1 className="text-3xl font-bold">{auto.auto_no}</h1>
+              </Button>
+              <h1 className="text-3xl font-bold">{auto.auto_no}</h1>
               </div>
               <Button 
                 variant={showCalendar ? "primary" : "secondary"}
@@ -509,8 +473,7 @@ const AutoDetailPage = () => {
                 </Card>
               )}
             </div>
-          </>
-        )}
+        </>
       </div>
 
       {/* Edit Assignment Modal */}

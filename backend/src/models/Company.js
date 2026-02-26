@@ -10,6 +10,10 @@ class Company {
     return db('companies').where({ email, deleted_at: null }).first();
   }
 
+  static async findByGoogleId(google_id) {
+    return db('companies').where({ google_id, deleted_at: null }).first();
+  }
+
   static async findAll(filters = {}) {
     let query = db('companies').where({ deleted_at: null });
 
@@ -18,7 +22,12 @@ class Company {
     }
 
     if (filters.search) {
-      query = query.whereRaw('name ILIKE ?', [`%${filters.search}%`]);
+      // Search in name, email (string), and emails (JSONB array)
+      query = query.whereRaw(`(name ILIKE ? OR email ILIKE ? OR emails::text ILIKE ?)`, [
+        `%${filters.search}%`,
+        `%${filters.search}%`,
+        `%${filters.search}%`
+      ]);
     }
 
     return query.orderBy('created_at', 'desc');

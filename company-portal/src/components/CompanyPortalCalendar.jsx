@@ -13,6 +13,7 @@ import {
   isWithinInterval,
 } from 'date-fns';
 import { Card, Button } from './UI';
+import api from '../services/api';
 
 /**
  * Company Portal Calendar Component
@@ -32,7 +33,6 @@ const CompanyPortalCalendar = ({ assignments = [], areas = [] }) => {
         if (areas && areas.length > 0) {
           setLoadedAreas(areas);
         } else {
-          const api = require('../services/api').default;
           const response = await api.get('/areas');
           setLoadedAreas(response.data || []);
         }

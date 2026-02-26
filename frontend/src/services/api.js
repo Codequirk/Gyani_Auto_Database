@@ -8,6 +8,11 @@ const api = axios.create({
 
 // Add token to requests (handle both admin and company auth)
 api.interceptors.request.use((config) => {
+  // Don't override if Authorization header is already set
+  if (config.headers.Authorization) {
+    return config;
+  }
+
   const adminToken = localStorage.getItem('auth_token');
   const companyToken = localStorage.getItem('company_auth_token');
   
@@ -129,6 +134,12 @@ export const companyPortalService = {
 
 export const dashboardService = {
   getSummary: () => api.get('/dashboard/summary'),
+};
+
+export const autoImageService = {
+  getImageSections: () => api.get('/auto-images/image-sections'),
+  uploadImage: (autoId, formData) => api.post(`/auto-images/${autoId}/upload-image`, formData),
+  deleteImage: (autoId) => api.delete(`/auto-images/${autoId}/delete-image`),
 };
 
 export default api;

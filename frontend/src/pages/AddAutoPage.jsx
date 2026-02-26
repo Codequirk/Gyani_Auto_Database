@@ -150,20 +150,18 @@ const AddAutoPage = () => {
         setLoading(false);
         return;
       }
-      if (!paymentData.advance_payment.trim()) {
-        setError('Advance payment is required');
-        setLoading(false);
-        return;
-      }
-      if (isNaN(paymentData.advance_payment) || parseFloat(paymentData.advance_payment) < 0) {
-        setError('Advance payment must be a valid non-negative number');
-        setLoading(false);
-        return;
-      }
-      if (parseFloat(paymentData.advance_payment) > parseFloat(paymentData.monthly_cost)) {
-        setError('Advance payment cannot be greater than monthly cost');
-        setLoading(false);
-        return;
+      // Advance payment is optional - validate only if provided
+      if (paymentData.advance_payment.trim()) {
+        if (isNaN(paymentData.advance_payment) || parseFloat(paymentData.advance_payment) < 0) {
+          setError('Advance payment must be a valid non-negative number');
+          setLoading(false);
+          return;
+        }
+        if (parseFloat(paymentData.advance_payment) > parseFloat(paymentData.monthly_cost)) {
+          setError('Advance payment cannot be greater than monthly cost');
+          setLoading(false);
+          return;
+        }
       }
       if (!paymentData.start_date) {
         setError('Start date is required');
@@ -192,7 +190,7 @@ const AddAutoPage = () => {
       await autoMonthlyPaymentService.create({
         auto_id: autoId,
         monthly_cost: parseFloat(paymentData.monthly_cost),
-        advance_payment: parseFloat(paymentData.advance_payment),
+        advance_payment: paymentData.advance_payment.trim() ? parseFloat(paymentData.advance_payment) : 0,
         start_date: paymentData.start_date,
         end_date: endDate,
       });
@@ -349,17 +347,16 @@ const AddAutoPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Advance Payment (₹) *
+                  Advance Payment (₹)
                 </label>
                 <Input
                   type="number"
                   name="advance_payment"
                   value={paymentData.advance_payment}
                   onChange={handleChange}
-                  placeholder="e.g., 2500"
+                  placeholder="e.g., 2500 (optional - defaults to 0)"
                   step="0.01"
                   min="0"
-                  required
                 />
                 <p className="text-xs text-gray-500 mt-2">
                   Maximum: {paymentData.monthly_cost ? `₹${parseFloat(paymentData.monthly_cost).toLocaleString('en-IN')}` : 'Enter monthly cost first'}

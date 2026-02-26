@@ -21,9 +21,13 @@ export const CompanyAuthProvider = ({ children }) => {
           // Set the authorization header BEFORE making the API call
           api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
           
-          // Try to fetch company profile to verify token is valid
-          await api.get(`/company-portal/${companyData.id}/profile`);
-          setCompany(companyData);
+          // Fetch the latest company profile to verify token and get fresh data
+          const response = await api.get(`/company-portal/${companyData.id}/profile`);
+          const freshCompanyData = response.data;
+          
+          // Update with fresh data (in case status changed)
+          setCompany(freshCompanyData);
+          localStorage.setItem('company_data', JSON.stringify(freshCompanyData));
           setToken(storedToken);
           setLoading(false);
         } catch (error) {
@@ -71,7 +75,12 @@ export const CompanyAuthProvider = ({ children }) => {
       const response = await api.get(`/company-portal/${company.id}/profile`);
       const updatedCompany = response.data;
       
-      // Update state and localStorage
+      console.log('[AUTH CONTEXT] Refreshing company status:', {
+        old: company.company_status,
+        new: updatedCompany.company_status,
+      });
+      
+      // Update state and localStorage with fresh company data
       setCompany(updatedCompany);
       localStorage.setItem('company_data', JSON.stringify(updatedCompany));
       

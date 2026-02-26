@@ -645,7 +645,7 @@ export default function PaymentAdminPage() {
             </div>
             <div>
               <p className="text-gray-600 text-sm font-semibold">Phone</p>
-              <p className="text-gray-900">{company.phone || 'N/A'}</p>
+              <p className="text-gray-900">{company.phone_number || 'N/A'}</p>
             </div>
             <div className="bg-gradient-to-r from-green-50 to-green-100 rounded p-3 border border-green-300">
               <p className="text-gray-600 text-sm font-semibold">Total Revenue</p>

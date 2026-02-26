@@ -100,14 +100,19 @@ const validateAssignedAutoAssignment = (newStartDate, newEndDate, existingEndDat
   const nextDayAfterExisting = new Date(existingEnd);
   nextDayAfterExisting.setDate(nextDayAfterExisting.getDate() + 1);
 
+  console.log(`[SEQUENTIAL] Existing ends: ${existingEnd.toISOString()}, Next available: ${nextDayAfterExisting.toISOString()}, New start: ${newStart.toISOString()}`);
+  console.log(`[SEQUENTIAL] Check: newStart >= nextDay? ${newStart.getTime()} >= ${nextDayAfterExisting.getTime()} = ${newStart.getTime() >= nextDayAfterExisting.getTime()}`);
+
   // New assignment must start from the day after existing ends (no same-day continuation)
   if (newStart.getTime() < nextDayAfterExisting.getTime()) {
+    console.log(`[SEQUENTIAL] ✗ FAILED - New assignment must start on or after ${nextDayAfterExisting.toDateString()}`);
     return {
       isValid: false,
       error: 'This auto is already working for or pre-assigned to another company during the selected dates.'
     };
   }
 
+  console.log(`[SEQUENTIAL] ✓ PASSED - Sequential constraint OK`);
   return { isValid: true };
 };
 
@@ -125,6 +130,9 @@ const validateNoOverlap = (existingAssignments, newStartDate, newEndDate) => {
   const newEnd = new Date(newEndDate);
   newEnd.setHours(0, 0, 0, 0);
 
+  console.log(`[OVERLAP] Checking ${existingAssignments.length} assignments for overlap`);
+  console.log(`[OVERLAP] New dates: ${newStart.toISOString()} to ${newEnd.toISOString()}`);
+
   for (const assignment of existingAssignments) {
     const existingStart = new Date(assignment.start_date);
     existingStart.setHours(0, 0, 0, 0);
@@ -132,8 +140,14 @@ const validateNoOverlap = (existingAssignments, newStartDate, newEndDate) => {
     const existingEnd = new Date(assignment.end_date);
     existingEnd.setHours(0, 0, 0, 0);
 
+    console.log(`[OVERLAP] Comparing against ${assignment.status} ${existingStart.toISOString()} to ${existingEnd.toISOString()}`);
+
     // Check if there's any overlap
-    if (newStart <= existingEnd && newEnd >= existingStart) {
+    const hasOverlap = newStart <= existingEnd && newEnd >= existingStart;
+    console.log(`[OVERLAP] ${assignment.status}: newStart(${newStart}) <= existEnd(${existingEnd}) = ${newStart <= existingEnd}, newEnd(${newEnd}) >= existStart(${existingStart}) = ${newEnd >= existingStart}, hasOverlap = ${hasOverlap}`);
+
+    if (hasOverlap) {
+      console.log(`[OVERLAP] ✗ FOUND OVERLAP with ${assignment.status} assignment!`);
       return {
         isValid: false,
         error: 'This auto is already working for or pre-assigned to another company during the selected dates.'
@@ -141,6 +155,7 @@ const validateNoOverlap = (existingAssignments, newStartDate, newEndDate) => {
     }
   }
 
+  console.log(`[OVERLAP] ✓ No overlaps found`);
   return { isValid: true };
 };
 
@@ -154,6 +169,14 @@ const validateNoOverlap = (existingAssignments, newStartDate, newEndDate) => {
 const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
   const autoStatus = autoData.status;
   const existingAssignments = autoData.assignments || [];
+
+  console.log(`[VALIDATION] Auto status: ${autoStatus}`);
+  console.log(`[VALIDATION] New assignment: ${newStartDate} to ${newEndDate}`);
+  console.log(`[VALIDATION] Existing assignments:`, existingAssignments.map(a => ({
+    status: a.status,
+    start: a.start_date,
+    end: a.end_date
+  })));
 
   // Check start date is not in the past (applies to all statuses)
   const startCheck = validateStartDateNotInPast(newStartDate);
@@ -175,36 +198,74 @@ const validateAssignmentDates = (autoData, newStartDate, newEndDate) => {
     }
   }
 
-  // ACTIVE/PREBOOKED: check against existing assignments
+  // ACTIVE/PREBOOKED: For ACTIVE autos, check if new assignment must come after current ACTIVE
   if (autoStatus === 'ACTIVE' || autoStatus === 'PREBOOKED') {
-    // Get the most recent active/prebooked assignment
-    const activeAssignments = existingAssignments.filter(a => 
-      a.status === 'ACTIVE' || a.status === 'PREBOOKED'
-    );
+    // Get ONLY ACTIVE assignments (not prebooked) for sequential validation
+    const activeAssignments = existingAssignments.filter(a => a.status === 'ACTIVE');
 
     if (activeAssignments.length > 0) {
-      // Use the latest (most recent) active assignment
-      const latestAssignment = activeAssignments.sort((a, b) => 
+      console.log(`[VALIDATION] Found ${activeAssignments.length} ACTIVE assignments`);
+      // Use the most recent active assignment (the one that's actually running now)
+      const latestActiveAssignment = activeAssignments.sort((a, b) => 
         new Date(b.start_date) - new Date(a.start_date)
       )[0];
 
-      const assignedCheck = validateAssignedAutoAssignment(
-        newStartDate,
-        newEndDate,
-        latestAssignment.end_date
-      );
-      if (!assignedCheck.isValid) {
-        return assignedCheck;
+      // Check if the latest ACTIVE assignment is still ongoing (hasn't ended yet)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const latestEnd = new Date(latestActiveAssignment.end_date);
+      latestEnd.setHours(0, 0, 0, 0);
+      const isLatestAssignmentOngoing = latestEnd >= today;
+
+      console.log(`[VALIDATION] Latest ACTIVE assignment ends: ${latestActiveAssignment.end_date}`);
+      console.log(`[VALIDATION] Is it still ongoing (ends today or later)? ${isLatestAssignmentOngoing}`);
+
+      // Only enforce sequential constraint if new assignment is ACTIVE AND existing is still ongoing
+      const newStartCheck = new Date(newStartDate);
+      newStartCheck.setHours(0, 0, 0, 0);
+      const isNewAssignmentActive = newStartCheck <= today;
+
+      console.log(`[VALIDATION] Is new assignment ACTIVE (today or before)? ${isNewAssignmentActive}`);
+      console.log(`[VALIDATION] Today: ${today}, New start: ${newStartCheck}`);
+
+      if (isNewAssignmentActive && isLatestAssignmentOngoing) {
+        console.log(`[VALIDATION] Checking sequential constraint against ongoing ACTIVE assignment`);
+        // Only ACTIVE assignments must come after existing ongoing ACTIVE ends
+        const assignedCheck = validateAssignedAutoAssignment(
+          newStartDate,
+          newEndDate,
+          latestActiveAssignment.end_date
+        );
+        if (!assignedCheck.isValid) {
+          console.log(`[VALIDATION] FAILED sequential check: ${assignedCheck.error}`);
+          return assignedCheck;
+        }
+      } else {
+        console.log(`[VALIDATION] Skipping sequential check (new is PREBOOKED or existing ACTIVE already ended)`);
       }
     }
   }
 
-  // Check for overlaps with any assignment
-  const overlapCheck = validateNoOverlap(existingAssignments, newStartDate, newEndDate);
+  // Check for overlaps - only with ACTIVE and PREBOOKED assignments (not COMPLETED which are free days)
+  let assignmentsToCheckForOverlap = existingAssignments.filter(a => 
+    a.status === 'ACTIVE' || a.status === 'PREBOOKED'
+  );
+  
+  let today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let newStartCheck = new Date(newStartDate);
+  newStartCheck.setHours(0, 0, 0, 0);
+  let isNewAssignmentActive = newStartCheck <= today;
+  
+  console.log(`[VALIDATION] Checking overlap against ${assignmentsToCheckForOverlap.length} active/prebooked assignments (filtered from ${existingAssignments.length})`);
+
+  const overlapCheck = validateNoOverlap(assignmentsToCheckForOverlap, newStartDate, newEndDate);
   if (!overlapCheck.isValid) {
+    console.log(`[VALIDATION] FAILED overlap check: ${overlapCheck.error}`);
     return overlapCheck;
   }
 
+  console.log(`[VALIDATION] ✓ PASSED all checks`);
   return { isValid: true };
 };
 

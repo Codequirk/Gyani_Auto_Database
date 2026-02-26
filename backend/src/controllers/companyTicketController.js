@@ -214,7 +214,7 @@ exports.approveTicket = async (req, res, next) => {
               }
 
               await Payment.create({
-                ticket_id: assignment.id,
+                ticket_id: ticket.id,
                 auto_id: autoId,
                 company_id: ticket.company_id,
                 auto_no: auto.auto_no,

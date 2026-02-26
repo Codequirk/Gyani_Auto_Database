@@ -35,6 +35,8 @@ const CompanyRequestsPage = () => {
   const [availableAutosForPayment, setAvailableAutosForPayment] = useState([]);
   const [costPerDayForAssignment, setCostPerDayForAssignment] = useState('');
   const [showCostInputModal, setShowCostInputModal] = useState(false);
+  const [detailsModalPayments, setDetailsModalPayments] = useState([]);
+  const [detailsModalPaymentLoading, setDetailsModalPaymentLoading] = useState(false);
 
   useEffect(() => {
     fetchRequests();
@@ -44,21 +46,83 @@ const CompanyRequestsPage = () => {
     setLoading(true);
     setError('');
     try {
-      // Always fetch all tickets
-      const response = await api.get('/company-tickets/admin/all');
-      let allRequests = response.data;
-      
-      // Filter by status on frontend
+      let allRequests = [];
+
+      // Determine company status filter based on current tab
+      let companyStatus = null;
       if (filterStatus === 'PENDING') {
-        allRequests = allRequests.filter(r => r.ticket_status === 'PENDING');
+        companyStatus = 'REQUESTED';
       } else if (filterStatus === 'APPROVED') {
-        allRequests = allRequests.filter(r => r.ticket_status === 'APPROVED');
+        companyStatus = 'ACTIVE';
       } else if (filterStatus === 'REJECTED') {
-        allRequests = allRequests.filter(r => r.ticket_status === 'REJECTED');
+        companyStatus = 'REJECTED';
       }
-      
+
+      // Always fetch company registrations for the current status
+      try {
+        const companiesResponse = await api.get(`/companies?status=${companyStatus}`);
+        const companies = Array.isArray(companiesResponse) ? companiesResponse : (companiesResponse?.data || []);
+        
+        console.log(`[REQUESTS] ${companyStatus} companies response:`, companies);
+        
+        // Transform company registration format to match request format
+        const transformedRequests = companies.map(company => ({
+          id: company.id,
+          company_id: company.id,
+          type: 'COMPANY_REGISTRATION',
+          company: {
+            id: company.id,
+            name: company.name,
+            email: company.email,
+            contact_person: company.contact_person,
+            phone_number: company.phone_number,
+          },
+          company_name: company.name,
+          email: company.email,
+          contact_person: company.contact_person,
+          phone_number: company.phone_number,
+          ticket_status: filterStatus, // Use the current filter status (PENDING, APPROVED, REJECTED)
+          autos_required: 0,
+          days_required: 0,
+          start_date: company.created_at,
+          requested_at: company.created_at,
+          admin_notes: company.rejection_reason || '', // Get rejection reason from company object
+          rejection_reason: company.rejection_reason, // Also include rejection_reason for consistency
+          notes: 'Company registration request',
+        }));
+        
+        console.log(`[REQUESTS] Transformed ${companyStatus} registrations:`, transformedRequests);
+        allRequests = transformedRequests;
+      } catch (companiesErr) {
+        console.error('[REQUESTS] Error fetching companies:', companiesErr);
+        // If companies endpoint fails, continue with empty list
+        allRequests = [];
+      }
+
+      // Also fetch auto/payment request tickets for all tabs
+      try {
+        const ticketsResponse = await api.get('/company-tickets/admin/all');
+        let tickets = ticketsResponse.data || [];
+        
+        console.log('[REQUESTS] Fetched all tickets:', tickets.length);
+        
+        // Filter by ticket status matching the current filter
+        let ticketStatusFilter = filterStatus; // PENDING, APPROVED, REJECTED map directly
+        tickets = tickets.filter(r => r.ticket_status === ticketStatusFilter);
+        
+        console.log(`[REQUESTS] Filtered tickets for status ${ticketStatusFilter}:`, tickets.length);
+        
+        // Combine company registrations with tickets
+        allRequests = [...allRequests, ...tickets];
+        console.log(`[REQUESTS] Combined ${filterStatus} requests:`, allRequests.length);
+      } catch (ticketsErr) {
+        console.error('[REQUESTS] Error fetching tickets:', ticketsErr);
+        // Continue with just company registrations
+      }
+
       setRequests(allRequests);
     } catch (err) {
+      console.error('[REQUESTS] Error:', err);
       setError(err.response?.data?.error || 'Failed to load requests');
     } finally {
       setLoading(false);
@@ -66,9 +130,30 @@ const CompanyRequestsPage = () => {
   };
 
   const handleViewDetails = (request) => {
+    console.log('Opening modal for request:', request);
+    console.log('Request ID:', request.id);
     setSelectedRequest(request);
     setShowDetailsModal(true);
     setAdminNotes(request.admin_notes || '');
+    
+    // Fetch payment details if approved with autos
+    if (request.ticket_status === 'APPROVED' && request.autos_required > 0) {
+      setDetailsModalPaymentLoading(true);
+      console.log('Fetching payments for ticket ID:', request.id);
+      paymentService.getTicketPayments(request.id)
+        .then(res => {
+          console.log('Payment response:', res.data);
+          setDetailsModalPayments(res.data || []);
+        })
+        .catch(err => {
+          console.error('Error fetching payment details:', err);
+          console.error('Error response:', err.response?.data);
+          setDetailsModalPayments([]);
+        })
+        .finally(() => {
+          setDetailsModalPaymentLoading(false);
+        });
+    }
   };
 
   const handleUpdateNotes = async () => {
@@ -91,7 +176,27 @@ const CompanyRequestsPage = () => {
   const handleApprove = async () => {
     if (!selectedRequest) return;
     
-    // If company requested 0 autos, directly approve without assignment modal
+    // Check if this is a company registration request
+    if (selectedRequest.type === 'COMPANY_REGISTRATION') {
+      setActionLoading(true);
+      try {
+        // Approve the company registration
+        const response = await api.post(`/companies/${selectedRequest.company_id}/approve`);
+        alert('Company registration approved');
+        setShowDetailsModal(false);
+        setSelectedRequest(null);
+        // Switch to APPROVED filter to show the newly approved company
+        setFilterStatus('APPROVED');
+      } catch (err) {
+        console.error('[FRONTEND] Company approval error:', err);
+        alert(err.response?.data?.error || 'Failed to approve company registration');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+    
+    // Original auto request approval logic
     if (selectedRequest.autos_required === 0) {
       setActionLoading(true);
       try {
@@ -240,7 +345,38 @@ const CompanyRequestsPage = () => {
   };
 
   const handleReject = async () => {
-    if (!selectedRequest || !rejectionReason.trim()) {
+    if (!selectedRequest) {
+      alert('No request selected');
+      return;
+    }
+
+    // For company registration, rejection reason is optional
+    if (selectedRequest.type === 'COMPANY_REGISTRATION') {
+      const confirmed = window.confirm('Are you sure you want to reject this company registration?');
+      if (!confirmed) return;
+
+      setActionLoading(true);
+      try {
+        await api.post(`/companies/${selectedRequest.company_id}/reject`, {
+          reason: rejectionReason || 'Rejected by admin',
+        });
+        alert('Company registration rejected successfully');
+        setShowRejectionModal(false);
+        setShowDetailsModal(false);
+        setSelectedRequest(null);
+        setRejectionReason('');
+        // Switch to REJECTED filter to show the rejected company
+        setFilterStatus('REJECTED');
+      } catch (err) {
+        alert(err.response?.data?.error || 'Failed to reject company registration');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    // For auto request tickets, rejection reason is required
+    if (!rejectionReason.trim()) {
       alert('Please provide a rejection reason');
       return;
     }
@@ -440,110 +576,310 @@ const CompanyRequestsPage = () => {
           setSelectedRequest(null);
           setShowApprovalModal(false);
           setAdminNotes('');
+          setDetailsModalPayments([]);
         }}
-        title={`Request Details - ${selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 ? 'Registration Request' : `${selectedRequest?.autos_required} Autos`}`}
+        title={
+          selectedRequest?.ticket_status === 'REJECTED' 
+            ? 'Rejection Details'
+            : selectedRequest?.autos_required === 0 && selectedRequest?.days_required === 0 
+              ? 'Registration Request Details' 
+              : `Auto Request Details - ${selectedRequest?.autos_required} Autos`
+        }
       >
         {selectedRequest && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded">
-              <div>
-                <p className="text-sm text-gray-600">Company</p>
-                <p className="text-lg font-semibold">{selectedRequest.company?.name || 'Unknown'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Area</p>
-                <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
-              </div>
-              {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
-                <>
-                  <div>
-                    <p className="text-sm text-gray-600">Autos Required</p>
-                    <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Days Required</p>
-                    <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
-                  </div>
-                </>
-              )}
-              <div>
-                <p className="text-sm text-gray-600">Start Date</p>
-                <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <Badge>{selectedRequest.ticket_status}</Badge>
-              </div>
-            </div>
-
-            {selectedRequest.notes && (
-              <div>
-                <p className="font-semibold text-gray-900">Company Notes:</p>
-                <p className="mt-1 text-gray-700">{selectedRequest.notes}</p>
+            {/* REJECTED REQUEST - Show only rejection reason */}
+            {selectedRequest.ticket_status === 'REJECTED' && (
+              <div className="bg-red-50 p-4 rounded border border-red-200">
+                <div className="mb-4 pb-4 border-b border-red-200">
+                  <p className="text-sm text-gray-600">Company</p>
+                  <p className="text-lg font-semibold text-gray-900">{selectedRequest.company?.name || 'Unknown'}</p>
+                </div>
+                
+                <div className="bg-white p-3 rounded">
+                  <p className="text-sm font-semibold text-red-900 mb-2">Rejection Reason:</p>
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {selectedRequest.rejection_reason || selectedRequest.rejected_reason || selectedRequest.admin_notes || 'No reason provided'}
+                  </p>
+                </div>
               </div>
             )}
 
-            {/* Admin Notes Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Admin Notes
-              </label>
-              <textarea
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-                placeholder="Add your notes here"
-                rows="3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <Button
-                onClick={handleUpdateNotes}
-                variant="secondary"
-                className="mt-2"
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Saving...' : 'Save Notes'}
-              </Button>
-            </div>
+            {/* APPROVED COMPANY-ONLY REQUEST (Registration) - Show basic company info */}
+            {selectedRequest.ticket_status === 'APPROVED' && 
+             selectedRequest.autos_required === 0 && 
+             selectedRequest.days_required === 0 && (
+              <div className="bg-green-50 p-4 rounded border border-green-200">
+                <h3 className="font-bold text-green-900 mb-4">Company Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Company Name</p>
+                    <p className="text-lg font-semibold text-gray-900">{selectedRequest.company?.name || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Email</p>
+                    <p className="text-sm text-gray-900 break-all">{selectedRequest.company?.email || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Contact Person</p>
+                    <p className="text-sm text-gray-900">{selectedRequest.company?.contact_person || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Phone</p>
+                    <p className="text-sm text-gray-900">{selectedRequest.company?.phone_number || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
-            {/* Action Buttons */}
+            {/* APPROVED AUTO REQUEST - Show payment/cost details */}
+            {selectedRequest.ticket_status === 'APPROVED' && 
+             selectedRequest.autos_required > 0 && (
+              <div className="bg-blue-50 p-4 rounded border border-blue-200 space-y-4">
+                <h3 className="font-bold text-blue-900 mb-4">Assignment & Payment Details</h3>
+                
+                {/* Company & Request Summary */}
+                <div className="bg-white p-4 rounded border border-blue-100">
+                  <h4 className="font-semibold text-gray-900 mb-3">Request Summary</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Company</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.company?.name || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">{selectedRequest.company?.email || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Contact</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.company?.contact_person || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">{selectedRequest.company?.phone_number || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Area Required</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedRequest.area_name || 'Any Area'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Start Date</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatDate(selectedRequest.start_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">End Date</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedRequest.start_date && selectedRequest.days_required
+                          ? formatDate(new Date(new Date(selectedRequest.start_date).getTime() + (selectedRequest.days_required - 1) * 24 * 60 * 60 * 1000))
+                          : 'N/A'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignment Summary */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Autos Assigned</p>
+                    <p className="text-2xl font-bold text-blue-900">{selectedRequest.autos_required}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded">
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Duration</p>
+                    <p className="text-2xl font-bold text-blue-900">{selectedRequest.days_required} days</p>
+                  </div>
+                </div>
+
+                {/* Payment Details Table */}
+                {detailsModalPaymentLoading && (
+                  <div className="bg-white p-4 rounded text-center">
+                    <LoadingSpinner /> Loading payment details...
+                  </div>
+                )}
+
+                {!detailsModalPaymentLoading && detailsModalPayments && detailsModalPayments.length > 0 && (
+                  <div className="bg-white rounded border border-gray-200">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-blue-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Cost per Auto (per day)</th>
+                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Total Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-900 font-semibold">₹{(detailsModalPayments[0]?.cost_per_day || 0).toLocaleString('en-IN')}</span>
+                                <span className="text-xs text-gray-500">({detailsModalPayments[0]?.cost_per_day || 0} × {selectedRequest.autos_required} autos × {detailsModalPayments[0]?.total_days || selectedRequest.days_required} days)</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-green-600">₹{(Math.round(detailsModalPayments.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {!detailsModalPaymentLoading && (!detailsModalPayments || detailsModalPayments.length === 0) && (
+                  <div className="bg-white p-4 rounded text-center text-gray-500 text-sm border border-dashed border-gray-300">
+                    <p>No payment details available</p>
+                    <p className="text-xs text-gray-400 mt-1">Payment information will appear here</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fallback: Show basic auto details if no payment data */}
+            {selectedRequest.ticket_status === 'APPROVED' && 
+             selectedRequest.autos_required > 0 && 
+             detailsModalPayments.length === 0 &&
+             !detailsModalPaymentLoading &&
+             selectedRequest.autos && selectedRequest.autos.length > 0 && (
+              <div className="space-y-3">
+                <div className="bg-white p-3 rounded">
+                  <p className="font-semibold text-gray-900 mb-3 text-sm border-b pb-2">Assigned Autos (Fallback)</p>
+                  <div className="space-y-3">
+                    {selectedRequest.autos.map((auto, index) => {
+                      const costPerDay = auto.cost_per_day || 0;
+                      const totalCost = costPerDay * selectedRequest.days_required;
+                      return (
+                        <div key={auto.id} className="border border-blue-200 p-3 rounded bg-gradient-to-r from-blue-50 to-transparent">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="font-bold text-gray-900 text-sm">{index + 1}. {auto.registration_number || 'N/A'}</p>
+                              <p className="text-xs text-gray-600">{auto.model || 'Model N/A'}</p>
+                            </div>
+                            <Badge className="bg-blue-100 text-blue-900 text-xs">{auto.area_name || 'Any'}</Badge>
+                          </div>
+                          <div className="grid grid-cols-4 gap-2 text-xs">
+                            <div className="bg-white p-2 rounded">
+                              <p className="text-gray-600 font-semibold">Cost/Day</p>
+                              <p className="text-green-600 font-bold">₹{costPerDay?.toLocaleString('en-IN') || '0'}</p>
+                            </div>
+                            <div className="bg-white p-2 rounded">
+                              <p className="text-gray-600 font-semibold">Days</p>
+                              <p className="text-blue-600 font-bold">{selectedRequest.days_required}</p>
+                            </div>
+                            <div className="bg-white p-2 rounded">
+                              <p className="text-gray-600 font-semibold">Total</p>
+                              <p className="text-purple-600 font-bold">₹{totalCost?.toLocaleString('en-IN') || '0'}</p>
+                            </div>
+                            <div className="bg-white p-2 rounded">
+                              <p className="text-gray-600 font-semibold">Status</p>
+                              <p className="text-blue-600 font-bold text-xs">{auto.status || 'Active'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PENDING REQUEST - Show full details with action buttons */}
             {selectedRequest.ticket_status === 'PENDING' && (
-              <div className="flex gap-3">
-                <Button
-                  onClick={handleApprove}
-                  variant="success"
-                  disabled={actionLoading || loadingAutos}
-                  className="flex-1"
-                >
-                  {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Accept'}
-                </Button>
-                <Button
-                  onClick={() => setShowRejectionModal(true)}
-                  variant="danger"
-                  disabled={actionLoading}
-                  className="flex-1"
-                >
-                  ✕ Reject
-                </Button>
-              </div>
-            )}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded">
+                  <div>
+                    <p className="text-sm text-gray-600">Company</p>
+                    <p className="text-lg font-semibold">{selectedRequest.company?.name || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Area</p>
+                    <p className="text-lg font-semibold">{selectedRequest.area_name || 'Any Area'}</p>
+                  </div>
+                  {!(selectedRequest.autos_required === 0 && selectedRequest.days_required === 0) && (
+                    <>
+                      <div>
+                        <p className="text-sm text-gray-600">Autos Required</p>
+                        <p className="text-lg font-semibold">{selectedRequest.autos_required}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Days Required</p>
+                        <p className="text-lg font-semibold">{selectedRequest.days_required}</p>
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <p className="text-sm text-gray-600">Start Date</p>
+                    <p className="text-lg font-semibold">{formatDate(selectedRequest.start_date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Status</p>
+                    <Badge>{selectedRequest.ticket_status}</Badge>
+                  </div>
+                </div>
 
-            {showApprovalModal && selectedRequest.ticket_status === 'PENDING' && (
-              <div className="flex gap-3">
-                <Button
-                  onClick={handleReject}
-                  variant="danger"
-                  disabled={!rejectionReason.trim() || actionLoading}
-                  className="flex-1"
-                >
-                  {actionLoading ? 'Processing...' : 'Confirm Rejection'}
-                </Button>
-                <Button
-                  onClick={() => setShowApprovalModal(false)}
-                  variant="secondary"
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
+                {selectedRequest.notes && (
+                  <div>
+                    <p className="font-semibold text-gray-900">Company Notes:</p>
+                    <p className="mt-1 text-gray-700">{selectedRequest.notes}</p>
+                  </div>
+                )}
+
+                {/* Admin Notes Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Admin Notes
+                  </label>
+                  <textarea
+                    value={adminNotes}
+                    onChange={(e) => setAdminNotes(e.target.value)}
+                    placeholder="Add your notes here"
+                    rows="3"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <Button
+                    onClick={handleUpdateNotes}
+                    variant="secondary"
+                    className="mt-2"
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? 'Saving...' : 'Save Notes'}
+                  </Button>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handleApprove}
+                    variant="success"
+                    disabled={actionLoading || loadingAutos}
+                    className="flex-1"
+                  >
+                    {loadingAutos ? 'Loading autos...' : actionLoading ? 'Processing...' : '✓ Accept'}
+                  </Button>
+                  <Button
+                    onClick={() => setShowRejectionModal(true)}
+                    variant="danger"
+                    disabled={actionLoading}
+                    className="flex-1"
+                  >
+                    ✕ Reject
+                  </Button>
+                </div>
+
+                {showApprovalModal && (
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleReject}
+                      variant="danger"
+                      disabled={!rejectionReason.trim() || actionLoading}
+                      className="flex-1"
+                    >
+                      {actionLoading ? 'Processing...' : 'Confirm Rejection'}
+                    </Button>
+                    <Button
+                      onClick={() => setShowApprovalModal(false)}
+                      variant="secondary"
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

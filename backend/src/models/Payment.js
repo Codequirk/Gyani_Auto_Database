@@ -7,7 +7,18 @@ class Payment {
   }
 
   static async findByTicketId(ticketId) {
-    return db('payments').where({ ticket_id: ticketId }).orderBy('created_at', 'desc');
+    return db('payments')
+      .leftJoin('autos', 'payments.auto_id', 'autos.id')
+      .leftJoin('areas', 'autos.area_id', 'areas.id')
+      .where({ 'payments.ticket_id': ticketId })
+      .select(
+        'payments.*',
+        db.raw('autos.auto_no as auto_registration_number'),
+        db.raw('autos.owner_name as auto_owner_name'),
+        db.raw('autos.status as auto_status'),
+        db.raw('areas.name as area_name')
+      )
+      .orderBy('payments.created_at', 'desc');
   }
 
   static async findByAutoId(autoId) {

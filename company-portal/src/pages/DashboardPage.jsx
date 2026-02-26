@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { companyPortalService, assignmentService, autoService } from '../services/api';
+import api, { companyPortalService, assignmentService, autoService } from '../services/api';
 import { Card, Button, LoadingSpinner, Badge } from '../components/UI';
 import { computeDaysRemaining, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
@@ -17,6 +17,18 @@ const DashboardPage = () => {
   const [error, setError] = useState('');
   const [expandedList, setExpandedList] = useState(false);
   const [allAutos, setAllAutos] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [rejectedRequests, setRejectedRequests] = useState([]);
+  const [dismissedNotifications, setDismissedNotifications] = useState(() => {
+    const saved = localStorage.getItem('dismissedRejections');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const handleDismissNotification = (requestId) => {
+    const updated = [...dismissedNotifications, requestId];
+    setDismissedNotifications(updated);
+    localStorage.setItem('dismissedRejections', JSON.stringify(updated));
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -35,6 +47,19 @@ const DashboardPage = () => {
         setActiveAssignments(dashboardRes.data.active_assignments || []);
         setPrebookedAssignments(dashboardRes.data.prebooked_assignments || []);
         setPriorityAssignments(dashboardRes.data.priority_assignments || []);
+
+        // Fetch company's own requests (pending and rejected)
+        try {
+          const ticketsRes = await api.get('/company-tickets/company/my-requests');
+          const allTickets = ticketsRes.data || [];
+          const pending = allTickets.filter(ticket => ticket.ticket_status === 'PENDING');
+          const rejected = allTickets.filter(ticket => ticket.ticket_status === 'REJECTED');
+          setPendingRequests(pending);
+          setRejectedRequests(rejected);
+        } catch (ticketsErr) {
+          console.error('Error fetching requests:', ticketsErr);
+          // Don't fail dashboard if requests fetch fails
+        }
 
         if (expandedList) {
           try {
@@ -87,6 +112,69 @@ const DashboardPage = () => {
           </div>
         )}
 
+        {/* Pending & Rejected Requests Section */}
+        <div className="mb-8 space-y-3">
+          {/* Pending Requests */}
+          {pendingRequests.length > 0 && (
+            <div className="space-y-3">
+              {pendingRequests.map((request) => (
+                <div key={request.id} className="bg-blue-50 border border-blue-300 rounded-lg p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start flex-1">
+                      <span className="text-blue-600 text-xl mr-3">⏳</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-blue-900">
+                          Your {request.autos_required > 0 ? 'Auto Request' : 'Company Registration'} is Pending
+                        </p>
+                        <p className="text-blue-800 text-sm mt-1">
+                          Waiting for admin approval...
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Rejected Requests */}
+          {rejectedRequests.length > 0 && (
+            <div className="space-y-3">
+              {rejectedRequests.map((request) => {
+                // Skip if this notification has been dismissed
+                if (dismissedNotifications.includes(request.id)) {
+                  return null;
+                }
+
+                return (
+                  <div key={request.id} className="bg-red-50 border border-red-300 rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start flex-1">
+                        <span className="text-red-600 text-xl mr-3">ℹ️</span>
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900">
+                            Your {request.autos_required > 0 ? 'Auto Request' : 'Company Registration'} was rejected
+                          </p>
+                          <p className="text-red-800 text-sm mt-1">
+                            <strong>Reason:</strong> {request.admin_notes || request.rejection_reason || 'No reason provided'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDismissNotification(request.id)}
+                        className="ml-4 text-red-600 hover:text-red-800 text-2xl leading-none"
+                        title="Close notification"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -138,7 +226,7 @@ const DashboardPage = () => {
                 </thead>
                 <tbody>
                   {priorityAssignments.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                    <tr key={auto.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{formatDate(auto.start_date)}</td>
@@ -176,7 +264,7 @@ const DashboardPage = () => {
                 </thead>
                 <tbody>
                   {activeAssignments.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                    <tr key={auto.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
@@ -213,7 +301,7 @@ const DashboardPage = () => {
                 </thead>
                 <tbody>
                   {prebookedAssignments.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                    <tr key={auto.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>
@@ -259,7 +347,7 @@ const DashboardPage = () => {
                 </thead>
                 <tbody>
                   {allAutos.map((auto) => (
-                    <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                    <tr key={auto.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{auto.auto_no}</td>
                       <td className="px-4 py-2">{auto.owner_name}</td>
                       <td className="px-4 py-2">{auto.area_name}</td>

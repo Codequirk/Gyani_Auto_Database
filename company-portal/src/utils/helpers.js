@@ -6,30 +6,31 @@ export const computeDaysRemaining = (endDate) => {
   end.setHours(0, 0, 0, 0);
   
   const timeDiff = end - today;
-  const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+  // Use Math.floor to get exact days: if end=today, result is 0
+  const daysDiff = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
   
   return daysDiff;
 };
 
 export const computeDaysRemainingByStatus = (startDate, endDate, status) => {
+  // Calculate days remaining: end_date - today
+  // ACTIVE (ends today Feb 20): Feb 20 - Feb 20 = 0 days remaining ✓
+  // PREBOOKED (ends Feb 22, today Feb 20): Feb 22 - Feb 20 = 2 days remaining ✓
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  if (status === 'PREBOOKED') {
-    // Calculate days from today (inclusive) until day before start_date (inclusive)
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - 1); // Day before start_date
-    
-    const timeDiff = start - today;
-    const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-    
-    // Add 1 to include today in the count
-    return daysDiff < 0 ? 0 : daysDiff + 1;
+  let end;
+  if (typeof endDate === 'string') {
+    end = new Date(endDate.split('T')[0] + 'T00:00:00');
   } else {
-    // For ACTIVE and other statuses, use end_date
-    return computeDaysRemaining(endDate);
+    end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
   }
+  
+  const timeDiff = end - today;
+  const daysDiff = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+  
+  return daysDiff >= 0 ? daysDiff : 0;
 };
 
 export const isPriority = (endDate) => {

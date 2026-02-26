@@ -2,7 +2,12 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CompanyAuthProvider, useCompanyAuth } from './context/CompanyAuthContext';
 import CompanyHomePage from './pages/CompanyHomePage';
+import RegisterEmailPage from './pages/RegisterEmailPage';
+import VerifyOTPPage from './pages/VerifyOTPPage';
+import CompleteProfilePage from './pages/CompleteProfilePage';
 import CompanyLoginPage from './pages/CompanyLoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import CompanyDashboardPage from './pages/CompanyDashboardPage';
 import AutoDetailPage from './pages/AutoDetailPage';
 import './App.css';
@@ -29,7 +34,19 @@ function AppContent() {
     <Routes>
       {/* Company Portal Routes Only */}
       <Route path="/" element={<CompanyHomePage />} />
+      
+      {/* NEW AUTH REGISTRATION FLOW ROUTES */}
+      <Route path="/register" element={<RegisterEmailPage />} />
+      <Route path="/verify-otp" element={<VerifyOTPPage />} />
+      <Route path="/complete-profile" element={<CompleteProfilePage />} />
+      <Route path="/company-login" element={<CompanyLoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      
+      {/* LEGACY ROUTES - For backward compatibility */}
       <Route path="/login" element={<CompanyLoginPage />} />
+      
+      {/* Protected Routes */}
       <Route
         path="/dashboard"
         element={

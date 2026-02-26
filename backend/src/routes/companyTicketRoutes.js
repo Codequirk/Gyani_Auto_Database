@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const companyTicketController = require('../controllers/companyTicketController');
-const authMiddleware = require('../middleware/auth');
-const companyAuthMiddleware = require('../middleware/companyAuth');
+const authMiddleware = require('../middleware/authMiddleware');
+const companyAuthMiddleware = require('../middleware/authMiddleware');
 
 // Admin endpoints - require admin auth (MUST be before generic :id routes)
 router.get('/admin/pending', authMiddleware, companyTicketController.getPendingTickets);

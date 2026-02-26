@@ -133,3 +133,61 @@ exports.deleteCompany = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.approveCompany = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    if (company.status !== 'REQUESTED') {
+      return res.status(400).json({ error: 'Only REQUESTED companies can be approved' });
+    }
+
+    const updated = await Company.update(id, {
+      status: 'ACTIVE',
+      company_status: 'ACTIVE',
+      updated_at: new Date(),
+    });
+
+    res.json({
+      message: 'Company approved successfully',
+      company: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.rejectCompany = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    if (company.status !== 'REQUESTED') {
+      return res.status(400).json({ error: 'Only REQUESTED companies can be rejected' });
+    }
+
+    const updated = await Company.update(id, {
+      status: 'REJECTED',
+      company_status: 'REJECTED',
+      rejection_reason: reason || 'Rejected by admin',
+      updated_at: new Date(),
+    });
+
+    res.json({
+      message: 'Company rejected successfully',
+      company: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

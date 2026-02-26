@@ -23,7 +23,7 @@ const CompanyHomePage = () => {
               <Button 
                 variant="primary"
                 className="text-sm px-3 py-1"
-                onClick={() => navigate('/login')}
+                onClick={() => navigate('/register')}
               >
                 Register
               </Button>

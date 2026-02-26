@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCompanyAuth } from '../context/CompanyAuthContext';
+import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import api from '../services/api';
 import { Button, Input, ErrorAlert, Card } from '../components/UI';
 
@@ -12,6 +13,7 @@ const CompanyLoginPage = () => {
   const [showRegister, setShowRegister] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [areas, setAreas] = useState([]);
+  const [searchParams] = useSearchParams();
   
   // Registration fields
   const [regName, setRegName] = useState('');
@@ -27,6 +29,15 @@ const CompanyLoginPage = () => {
   const { login } = useCompanyAuth();
   const navigate = useNavigate();
 
+  // Check for complete profile redirect
+  useEffect(() => {
+    const token = searchParams.get('token');
+    const isCompleteProfile = searchParams.get('complete-profile');
+    if (token && isCompleteProfile) {
+      navigate('/complete-profile', { state: { token } });
+    }
+  }, [searchParams, navigate]);
+
   // Fetch areas when register form is shown
   useEffect(() => {
     if (showRegister && areas.length === 0) {
@@ -41,6 +52,43 @@ const CompanyLoginPage = () => {
       fetchAreas();
     }
   }, [showRegister]);
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setError('');
+      setLoading(true);
+
+      // Send Google credential to backend
+      const response = await api.post('/company-auth/google', {
+        credential: credentialResponse.credential,
+      });
+
+      // If profile is incomplete, redirect to complete profile page
+      if (response.data.redirectTo === '/complete-profile') {
+        navigate('/complete-profile', {
+          state: {
+            token: response.data.token,
+            email: response.data.email,
+            name: response.data.name,
+          },
+        });
+      } else {
+        // Profile already complete, login user
+        login(response.data.company, response.data.token);
+        setTimeout(() => {
+          navigate('/company/dashboard');
+        }, 100);
+      }
+    } catch (err) {
+      console.error('Google login error:', err);
+      setError(err.response?.data?.error || 'Google login failed');
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setError('Google login failed. Please try again.');
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -257,8 +305,9 @@ const CompanyLoginPage = () => {
         </div>
       ) : (
         // Login/Register Form Section
-        <div className="min-h-screen bg-gradient-to-br from-green-600 to-teal-600 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md">
+        <GoogleOAuthProvider clientId="665476970812-fl9240081dp09jvfbe84klgtnfdn8q5g.apps.googleusercontent.com">
+          <div className="min-h-screen bg-gradient-to-br from-green-600 to-teal-600 flex items-center justify-center p-4">
+            <Card className="w-full max-w-md">
             <button
               onClick={() => setShowForm(false)}
               className="text-blue-600 hover:underline text-sm font-medium mb-4"
@@ -296,6 +345,27 @@ const CompanyLoginPage = () => {
                 >
                   {loading ? 'Logging in...' : 'Login'}
                 </Button>
+
+                {/* Divider */}
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">Or</span>
+                  </div>
+                </div>
+
+                {/* Google Login */}
+                <div className="w-full flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    text="signin"
+                    width="320"
+                  />
+                </div>
+
                 <p className="text-center text-sm text-gray-600 mt-4">
                   Don't have an account?{' '}
                   <button
@@ -405,6 +475,27 @@ const CompanyLoginPage = () => {
                 >
                   {loading ? 'Registering...' : 'Register'}
                 </Button>
+
+                {/* Divider */}
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">Or</span>
+                  </div>
+                </div>
+
+                {/* Google Register */}
+                <div className="w-full flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    text="signup"
+                    width="320"
+                  />
+                </div>
+
                 <p className="text-center text-sm text-gray-600 mt-4">
                   Already have an account?{' '}
                   <button
@@ -430,6 +521,7 @@ const CompanyLoginPage = () => {
             </div>
           </Card>
         </div>
+        </GoogleOAuthProvider>
       )}
     </>
   );

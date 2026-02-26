@@ -77,13 +77,17 @@ exports.addPayment = async (req, res, next) => {
 exports.getTicketPayments = async (req, res, next) => {
   try {
     const { ticket_id } = req.params;
+    console.log('🔍 Fetching payments for ticket_id:', ticket_id);
 
     const ticket = await CompanyTicket.findById(ticket_id);
     if (!ticket) {
+      console.log('❌ Ticket not found:', ticket_id);
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
     const payments = await Payment.findByTicketId(ticket_id);
+    console.log('✓ Found', payments.length, 'payments for ticket:', ticket_id);
+    console.log('Payments:', JSON.stringify(payments, null, 2));
     
     res.json(payments);
   } catch (error) {

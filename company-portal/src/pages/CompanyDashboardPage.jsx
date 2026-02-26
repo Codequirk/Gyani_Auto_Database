@@ -98,19 +98,37 @@ const CompanyDashboardPage = () => {
   };
 
   useEffect(() => {
+    console.log('[DASHBOARD] useEffect triggered', {
+      isAuthenticated,
+      company: company ? { id: company.id, name: company.name } : null,
+      loading,
+    });
+
     if (!isAuthenticated || !company) {
+      console.log('[DASHBOARD] Not authenticated or no company, redirecting to login');
       navigate('/login');
       return;
     }
 
     const fetchDashboard = async () => {
       try {
+        console.log('[DASHBOARD] Fetching dashboard for company:', company.id);
         const response = await api.get(`/company-portal/${company.id}/dashboard`);
+        console.log('[DASHBOARD] Response received:', {
+          company_status: response.data.company_status,
+          summary: response.data.summary,
+        });
         setDashboard(response.data);
         setError('');
       } catch (err) {
         const errorMessage = err.response?.data?.error || 'Failed to load dashboard';
         const status = err.response?.data?.status;
+        
+        console.error('[DASHBOARD] Error fetching dashboard:', {
+          status: err.response?.status,
+          error: errorMessage,
+          company_id: company.id,
+        });
         
         if (status === 'PENDING_APPROVAL') {
           setError('⏳ Your company registration is pending admin approval. Please check back soon!');
@@ -179,23 +197,27 @@ const CompanyDashboardPage = () => {
   if (loading) return <LoadingSpinner />;
 
   // Show pending approval message if company status is PENDING_APPROVAL
-  if (company.status === 'PENDING_APPROVAL' || company.company_status === 'PENDING_APPROVAL') {
+  // Check both company object status and dashboard response status
+  const isPendingApproval = company.status === 'PENDING_APPROVAL' || 
+                            company.company_status === 'PENDING_APPROVAL' ||
+                            (dashboard && dashboard.company_status === 'PENDING_APPROVAL');
+  
+  if (isPendingApproval) {
     const handleRefresh = async () => {
       setRefreshing(true);
       try {
+        console.log('[DASHBOARD] Refreshing company status...');
         const success = await refreshCompanyStatus();
         if (success) {
+          console.log('[DASHBOARD] Company status refreshed successfully');
           setError('');
-          setLoading(true);
-          // Fetch dashboard data after refreshing company status
-          const response = await api.get(`/company-portal/${company.id}/dashboard`);
-          setDashboard(response.data);
-          setLoading(false);
-          // Force re-render by checking updated company status
+          // Don't manually set loading/dashboard - let the component re-render naturally
+          // When company updates in context, it will trigger useEffect which fetches dashboard
         } else {
           setError('Failed to refresh status. Please try again.');
         }
       } catch (err) {
+        console.error('[DASHBOARD] Error refreshing:', err);
         setError('Failed to refresh. Please try logging out and logging back in.');
       } finally {
         setRefreshing(false);
@@ -216,9 +238,9 @@ const CompanyDashboardPage = () => {
               </p>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                 <p className="text-blue-800 text-sm">
-                  <strong>Company:</strong> {company.name}<br />
+                  <strong>Company:</strong> {company.name || company.company_name}<br />
                   <strong>Email:</strong> {company.email}<br />
-                  <strong>Contact:</strong> {company.contact_person}
+                  <strong>Contact:</strong> {company.contact_person || company.company_person}
                 </p>
               </div>
               <div className="flex gap-3 justify-center">
@@ -301,7 +323,7 @@ const CompanyDashboardPage = () => {
         )}
 
         {/* Active Assignments */}
-        {dashboard && dashboard.active_assignments.length > 0 && (
+        {dashboard && (dashboard.active_assignments?.length ?? 0) > 0 && (
           <Card className="mb-8">
             <h2 className="text-xl font-bold mb-4 flex items-center">
               <Badge variant="success">ACTIVE</Badge>
@@ -322,7 +344,7 @@ const CompanyDashboardPage = () => {
                 </thead>
                 <tbody>
                   {dashboard.active_assignments.map((assignment) => (
-                    <tr key={assignment.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${assignment.auto_id}`)}>
+                    <tr key={assignment.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{assignment.auto_no}</td>
                       <td className="px-4 py-2">{assignment.owner_name}</td>
                       <td className="px-4 py-2">{assignment.area_name}</td>
@@ -344,8 +366,8 @@ const CompanyDashboardPage = () => {
           </Card>
         )}
 
-        {/* Pre-booked Assignments */}
-        {dashboard && dashboard.prebooked_assignments.length > 0 && (
+        {/* Prebooked Assignments */}
+        {dashboard && (dashboard.prebooked_assignments?.length ?? 0) > 0 && (
           <Card className="mb-8">
             <h2 className="text-xl font-bold flex items-center mb-4">
               <Badge variant="warning">PREBOOKED</Badge>
@@ -381,7 +403,7 @@ const CompanyDashboardPage = () => {
         )}
 
         {/* Completed Assignments */}
-        {dashboard && dashboard.completed_assignments && dashboard.completed_assignments.length > 0 && (
+        {dashboard && (dashboard.completed_assignments?.length ?? 0) > 0 && (
           <Card className="mb-8">
             <h2 className="text-xl font-bold mb-4 flex items-center">
               <Badge className="bg-gray-200 text-gray-800">COMPLETED</Badge>
@@ -421,7 +443,7 @@ const CompanyDashboardPage = () => {
         )}
 
         {/* Pending Tickets */}
-        {dashboard && dashboard.pending_tickets.length > 0 && (
+        {dashboard && (dashboard.pending_tickets?.length ?? 0) > 0 && (
           <Card className="mb-8">
             <h2 className="text-xl font-bold mb-4 flex items-center">
               <Badge>PENDING</Badge>
@@ -458,7 +480,7 @@ const CompanyDashboardPage = () => {
         )}
 
         {/* No Assignments Message */}
-        {dashboard && dashboard.active_assignments.length === 0 && dashboard.prebooked_assignments.length === 0 && (
+        {dashboard && (dashboard.active_assignments?.length ?? 0) === 0 && (dashboard.prebooked_assignments?.length ?? 0) === 0 && (
           <Card>
             <div className="text-center py-12">
               <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>
@@ -616,7 +638,7 @@ const CompanyDashboardPage = () => {
             </div>
 
             <div className="p-6">
-              {dashboard && (dashboard.active_assignments.length > 0 || dashboard.prebooked_assignments.length > 0) ? (
+              {dashboard && ((dashboard.active_assignments?.length ?? 0) > 0 || (dashboard.prebooked_assignments?.length ?? 0) > 0) ? (
                 <CompanyPortalCalendar
                   assignments={[...dashboard.active_assignments, ...dashboard.prebooked_assignments]}
                   areas={areas}

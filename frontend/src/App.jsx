@@ -11,6 +11,7 @@ import CompaniesPage from './pages/CompaniesPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
 import CompanyRequestsPage from './pages/CompanyRequestsPage';
 import PaymentAdminPage from './pages/PaymentAdminPage';
+import AutoImageManagementPage from './pages/AutoImageManagementPage';
 import './App.css';
 
 function ProtectedRoute({ children }) {
@@ -95,6 +96,14 @@ function AppContent() {
         element={
           <ProtectedRoute>
             <PaymentAdminPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/auto-images"
+        element={
+          <ProtectedRoute>
+            <AutoImageManagementPage />
           </ProtectedRoute>
         }
       />

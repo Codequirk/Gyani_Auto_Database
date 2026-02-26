@@ -843,7 +843,7 @@ const AutosPage = () => {
               </thead>
               <tbody>
                 {autos?.map((auto) => (
-                  <tr key={auto.id} className="border-t hover:bg-gray-50 cursor-pointer" onDoubleClick={() => navigate(`/autos/${auto.id}`)}>
+                  <tr key={auto.id} className="border-t hover:bg-gray-50">
                     <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"

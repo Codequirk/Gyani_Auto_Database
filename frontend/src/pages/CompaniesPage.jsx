@@ -83,7 +83,6 @@ const CompaniesPage = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -116,7 +115,7 @@ const CompaniesPage = () => {
     data: companies,
     loading: companiesLoading,
     refetch: refetchCompanies,
-  } = useFetch(() => companyService.list({ search: debouncedSearch, status: selectedStatus }), [debouncedSearch, selectedStatus]);
+  } = useFetch(() => companyService.list({ search: debouncedSearch, status: 'ACTIVE' }), [debouncedSearch]);
 
   const handleEdit = (company) => {
     setEditingCompanyId(company.id);
@@ -296,17 +295,6 @@ const CompaniesPage = () => {
       setErrorMessage(errorMsg);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'ACTIVE':
-        return 'bg-green-100 text-green-800';
-      case 'INACTIVE':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
     }
   };
 

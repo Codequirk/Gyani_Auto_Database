@@ -41,7 +41,7 @@ const determineAutoStatus = (assignments) => {
     return 'IDLE';
   }
 
-  // Check status of each assignment
+  // First, check if ANY assignment is ACTIVE today (highest priority)
   for (const assignment of activeOrPrebookedAssignments) {
     const startDate = new Date(assignment.start_date);
     const endDate = new Date(assignment.end_date);
@@ -52,6 +52,12 @@ const determineAutoStatus = (assignments) => {
     if (startDate <= today && today <= endDate) {
       return 'ACTIVE';
     }
+  }
+
+  // If no ACTIVE assignment, check if any assignment is PREBOOKED
+  for (const assignment of activeOrPrebookedAssignments) {
+    const startDate = new Date(assignment.start_date);
+    startDate.setHours(0, 0, 0, 0);
 
     // PREBOOKED: if start_date > today
     if (startDate > today) {
@@ -181,9 +187,14 @@ exports.listAutos = async (req, res, next) => {
         // Use the new helper function to determine display status based on dates
         const displayStatus = determineAutoStatus(enrichedAssignments);
         
+        // For days_remaining, show only the current assignment's remaining days (not merged)
+        const currentAssignmentDaysRemaining = mostRecentAssignment.status === 'ACTIVE' 
+          ? computeDaysRemaining(mostRecentAssignment.end_date)
+          : null;
+        
         expandedAutos.push({
           ...freshAuto,  // Use fresh auto with updated status
-          days_remaining: computeDaysRemaining(mergedEndDate),
+          days_remaining: currentAssignmentDaysRemaining,
           current_company: mostRecentAssignment.company_name,
           display_status: displayStatus,
           assignments: enrichedAssignments, // Include all enriched assignments for frontend to check availability

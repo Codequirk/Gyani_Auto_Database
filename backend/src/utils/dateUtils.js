@@ -1,5 +1,8 @@
 // Calculate days remaining from end_date
 // Returns 0 if the end_date is today or in the past (never negative)
+// "Days remaining" = number of complete days AFTER today until and including end_date
+// Example: If today is Feb 20 and end_date is Feb 20, remaining = 0
+// Example: If today is Feb 20 and end_date is Feb 21, remaining = 1
 function computeDaysRemaining(endDate) {
   // Get today's date in local timezone, normalized to midnight
   const today = new Date();
@@ -29,9 +32,13 @@ function computeDaysRemaining(endDate) {
   }
   
   const timeDiff = end - todayNormalized;
-  const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+  const ms_per_day = 1000 * 60 * 60 * 24;
+  const daysDiff = Math.floor(timeDiff / ms_per_day);
   
-  // Return 0 if assignment has expired (no negative values)
+  // Debug logging for troubleshooting
+  // console.log(`[DATE-UTILS] computeDaysRemaining: today=${todayNormalized.toISOString()}, end=${end.toISOString()}, timeDiff=${timeDiff}ms, daysDiff=${daysDiff}`);
+  
+  // Return 0 if assignment has expired or is expiring today (no negative values)
   return daysDiff < 0 ? 0 : daysDiff;
 }
 
