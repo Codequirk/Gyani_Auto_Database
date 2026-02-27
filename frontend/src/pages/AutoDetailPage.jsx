@@ -1,26 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
-import { autoService, assignmentService, companyService, autoMonthlyPaymentService } from '../services/api';
+import { autoService, assignmentService, companyService, autoMonthlyPaymentService, autoImageService } from '../services/api';
+import { BACKEND_BASE_URL, getFullImageUrl } from '../config/url';
 import { Card, Button, Badge, ErrorAlert, LoadingSpinner, Input, Modal } from '../components/UI';
 import { computeDaysRemaining, computeDaysRemainingByStatus, formatDate, getStatusBadgeColor } from '../utils/helpers';
 import Navbar from '../components/Navbar';
 import AssignmentCalendar from '../components/AssignmentCalendar';
 
-// Get backend base URL (strip '/api' from the API URL)
-let BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace('/api', '');
-
-// Ensure it doesn't end with a slash
-if (BACKEND_BASE_URL.endsWith('/')) {
-  BACKEND_BASE_URL = BACKEND_BASE_URL.slice(0, -1);
+if (import.meta.env.DEV) {
+  console.log('[AutoDetailPage] BACKEND_BASE_URL:', BACKEND_BASE_URL);
 }
-
-// Ensure it has a protocol
-if (!BACKEND_BASE_URL.startsWith('http://') && !BACKEND_BASE_URL.startsWith('https://')) {
-  BACKEND_BASE_URL = 'http://localhost:5001';
-}
-
-console.log('[AutoDetailPage] BACKEND_BASE_URL:', BACKEND_BASE_URL);
 
 const AssignmentActionMenu = ({ assignment, onEdit, onDelete, isLoading }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -122,28 +112,47 @@ const AutoDetailPage = () => {
   // Load advertisement images for the current assignment
   useEffect(() => {
     if (auto?.id) {
-      // Load weekly auto image
+      // Load weekly auto image - use the auto's own image_url field directly
       const loadAutoImage = async () => {
         try {
           setAutoImageLoading(true);
-          const token = localStorage.getItem('auth_token');
-          const response = await fetch(`/api/auto-images/image-sections`, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-          });
           
-          if (response.ok) {
-            const data = await response.json();
-            console.log('[AutoDetailPage] Image sections loaded:', {
+          // If the auto has an image_url, display it directly
+          if (auto.image_url) {
+            console.log('[AutoDetailPage] Auto has image_url:', {
+              auto_no: auto.auto_no,
+              image_url: auto.image_url,
+              image_upload_date: auto.image_upload_date,
+              image_week_number: auto.image_week_number,
+              image_year: auto.image_year
+            });
+            
+            setAutoImage({
+              id: auto.id,
+              auto_no: auto.auto_no,
+              image_url: auto.image_url,
+              uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
+              weekNumber: auto.image_week_number,
+              year: auto.image_year,
+              section: 'UPLOADED'
+            });
+          } else {
+            // If no image on auto, try fetching from image sections for completeness
+            const response = await autoImageService.getImageSections();
+            const data = response.data;
+            
+            console.log('[AutoDetailPage] Image sections loaded, but no image_url on auto:', {
               total: data.summary.total,
               missing: data.summary.missing,
               buffer: data.summary.buffer,
               uploaded: data.summary.uploaded
             });
-            // Find this auto in any section
+            
+            // Try to find this auto in any section
             for (const section of Object.values(data.sections)) {
               const foundAuto = section.find(a => a.id === auto.id);
               if (foundAuto && foundAuto.image_url) {
-                console.log('[AutoDetailPage] Found auto image:', {
+                console.log('[AutoDetailPage] Found auto image in sections:', {
                   auto_no: foundAuto.auto_no,
                   image_url: foundAuto.image_url,
                   section: foundAuto.section
@@ -194,6 +203,42 @@ const AutoDetailPage = () => {
       }
     }
   }, [auto?.id, auto?.assignments]);
+
+  // Poll for image updates every 5 seconds to catch images uploaded via ImageManagement
+  useEffect(() => {
+    if (!auto?.id) return;
+
+    const refreshAutoImage = async () => {
+      try {
+        const response = await autoImageService.getImageSections();
+        const data = response.data;
+        
+        // Find this auto in any section
+        for (const section of Object.values(data.sections)) {
+          const foundAuto = section.find(a => a.id === auto.id);
+          if (foundAuto && foundAuto.image_url) {
+            // Only update if image URL changed
+            if (!autoImage || autoImage.image_url !== foundAuto.image_url) {
+              console.log('[AutoDetailPage] Image updated:', foundAuto.image_url);
+              setAutoImage(foundAuto);
+            }
+            return;
+          }
+        }
+        // If no image found, clear it
+        if (autoImage) {
+          setAutoImage(null);
+        }
+      } catch (err) {
+        // Silent error - polling failure shouldn't break UX
+        console.debug('Image poll error:', err);
+      }
+    };
+
+    // Poll every 5 seconds
+    const pollInterval = setInterval(refreshAutoImage, 5000);
+    return () => clearInterval(pollInterval);
+  }, [auto?.id, autoImage?.image_url]);
 
   // Handle Escape key to close full-screen image
   useEffect(() => {
@@ -387,52 +432,36 @@ const AutoDetailPage = () => {
     setImageSuccess('');
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setImageError('Not authenticated. Please login again.');
-        setUploadingImage(false);
-        return;
-      }
-
       const formData = new FormData();
       formData.append('image', file);
 
-      // Upload using image management API - this will move auto to UPLOADED section
-      const response = await fetch(
-        `/api/auto-images/${auto.id}/upload-image`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
-        }
-      );
+      console.log('[Upload] Starting upload for auto:', {
+        autoId: auto.id,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type
+      });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || data.message || 'Failed to upload image');
-      }
-
-      const data = await response.json();
+      // Upload using image management service
+      const response = await autoImageService.uploadImage(auto.id, formData);
       
-      console.log('[Upload] Response data:', data);
+      console.log('[Upload] Response received:', response.data);
       
       // Update local state with new image - with cache busting
-      const imageUrlWithTimestamp = `${data.auto.imageUrl}?t=${Date.now()}`;
+      const imageUrlWithTimestamp = `${response.data.auto.imageUrl}?t=${Date.now()}`;
       setAutoImage({
         id: auto.id,
         auto_no: auto.auto_no,
         image_url: imageUrlWithTimestamp,
-        uploadedDate: data.auto.uploadedDate,
-        weekNumber: data.auto.weekNumber,
-        year: data.auto.year,
-        section: data.auto.section
+        uploadedDate: response.data.auto.uploadedDate,
+        weekNumber: response.data.auto.weekNumber,
+        year: response.data.auto.year,
+        section: response.data.auto.section
       });
       
       console.log('[Upload] Updated autoImage state:', {
         image_url: imageUrlWithTimestamp,
-        uploadedDate: data.auto.uploadedDate
+        uploadedDate: response.data.auto.uploadedDate
       });
       
       setImageSuccess('Image uploaded successfully! Auto moved to UPLOADED section.');
@@ -441,13 +470,8 @@ const AutoDetailPage = () => {
       setTimeout(async () => {
         try {
           console.log('[Upload] Refetching auto data...');
-          const response = await fetch(`/api/autos/${auto.id}`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
-          });
-          if (response.ok) {
-            const updatedAuto = await response.json();
-            console.log('[Upload] Auto refetched, current data:', updatedAuto);
-          }
+          await refetch();
+          console.log('[Upload] Auto refetched successfully');
         } catch (err) {
           console.error('[Upload] Error refetching auto:', err);
         }
@@ -456,7 +480,8 @@ const AutoDetailPage = () => {
       setTimeout(() => setImageSuccess(''), 3000);
     } catch (err) {
       console.error('Upload error:', err);
-      setImageError(err.message || 'Failed to upload image');
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to upload image';
+      setImageError(errorMsg);
     } finally {
       setUploadingImage(false);
     }
@@ -477,35 +502,21 @@ const AutoDetailPage = () => {
     setImageSuccess('');
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setImageError('Not authenticated. Please login again.');
-        setUploadingImage(false);
-        return;
-      }
-
-      const response = await fetch(
-        `/api/auto-images/${auto.id}/delete-image`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || data.message || 'Failed to delete image');
-      }
-
+      console.log('[Delete] Starting delete for auto:', auto.id);
+      
+      // Delete using image management service
+      await autoImageService.deleteImage(auto.id);
+      
+      console.log('[Delete] Image deleted successfully');
+      
       // Clear auto image - it moved to MISSING section
       setAutoImage(null);
       setImageSuccess('Image deleted successfully! Auto moved to MISSING section.');
       setTimeout(() => setImageSuccess(''), 3000);
     } catch (err) {
       console.error('Delete error:', err);
-      setImageError(err.message || 'Failed to delete image');
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to delete image';
+      setImageError(errorMsg);
     } finally {
       setUploadingImage(false);
     }
@@ -635,7 +646,7 @@ const AutoDetailPage = () => {
                     <div className="flex gap-4">
                       <div className="flex-1">
                         <img 
-                          src={`${BACKEND_BASE_URL}${autoImage.image_url}`}
+                          src={getFullImageUrl(autoImage.image_url)}
                           alt={auto.auto_no}
                           className="max-w-sm max-h-72 border-2 border-purple-300 rounded cursor-pointer hover:shadow-lg transition-shadow"
                           title="Double-click to view full size"
@@ -643,13 +654,17 @@ const AutoDetailPage = () => {
                           onError={(e) => {
                             console.error('[AutoDetailPage] Image failed to load:', {
                               url: autoImage.image_url,
+                              fullUrl: getFullImageUrl(autoImage.image_url),
                               auto: auto.auto_no,
                               error: e.type
                             });
                             e.target.style.border = '2px solid red';
                           }}
                           onLoad={() => {
-                            console.log('[AutoDetailPage] Image loaded successfully:', autoImage.image_url);
+                            console.log('[AutoDetailPage] Image loaded successfully:', {
+                              imagePath: autoImage.image_url,
+                              fullUrl: getFullImageUrl(autoImage.image_url)
+                            });
                           }}
                         />
                       </div>
@@ -1106,7 +1121,7 @@ const AutoDetailPage = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <img 
-              src={`${BACKEND_BASE_URL}${fullViewImage}`}
+              src={getFullImageUrl(fullViewImage)}
               alt="Full view"
               className="max-w-full max-h-[90vh] object-contain"
             />

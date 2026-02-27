@@ -242,82 +242,122 @@ class CompanyAuthController {
     try {
       const { email, password } = req.body;
 
+      console.log('\n========== [COMPANY-AUTH LOGIN] START ==========');
+      console.log('[COMPANY-AUTH] Received email:', email);
+      console.log('[COMPANY-AUTH] Received password: (length=' + (password ? password.length : 0) + ')');
+
       if (!email || !password) {
+        console.log('[COMPANY-AUTH] ❌ Missing required fields');
         return res.status(400).json({
           error: 'Email and password are required',
         });
       }
 
-      console.log('[COMPANY-AUTH] Login attempt:', email);
+      // Normalize email to lowercase for consistent lookups
+      const normalizedEmail = email.toLowerCase().trim();
+      console.log('[COMPANY-AUTH] Normalized email:', normalizedEmail);
 
-      const user = await CompanyUser.findByEmailWithPassword(email);
-      if (!user) {
-        console.log('[COMPANY-AUTH] User not found:', email);
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      if (!user.is_verified) {
-        console.log('[COMPANY-AUTH] User not verified:', email);
-        return res.status(403).json({
-          error: 'Email not verified. Please complete registration.',
-          action: 'complete_registration',
-        });
-      }
-
-      const profileComplete = await CompanyUser.isProfileComplete(user.id);
-      if (!profileComplete) {
-        console.log('[COMPANY-AUTH] Profile incomplete:', email);
-        return res.status(403).json({
-          error: 'Please complete your profile',
-          action: 'complete_profile',
-        });
-      }
-
-      const passwordMatch = await PasswordUtils.comparePassword(password, user.password);
-      if (!passwordMatch) {
-        console.log('[COMPANY-AUTH] Password mismatch for:', email);
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      await CompanyUser.updateLastLogin(user.id);
-
-      // Fetch company record to get approval status and ID for token
-      const company = await Company.findByEmail(email);
+      // First, try the new OTP-based CompanyUser system
+      console.log('[COMPANY-AUTH] Step 1: Looking up CompanyUser...');
+      const user = await CompanyUser.findByEmailWithPassword(normalizedEmail);
       
-      if (!company) {
-        console.log('[COMPANY-AUTH] Company not found for email:', email);
-        return res.status(404).json({ error: 'Company record not found' });
-      }
-
-      const token = jwt.sign(
-        {
-          type: 'company',
-          user_id: user.id,
-          company_id: company.id,
-          email: user.email,
-          company_name: user.company_name,
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '30d' }
-      );
-
-      console.log('[COMPANY-AUTH] Login successful:', email, 'with company_id:', company.id);
-
-      res.json({
-        message: 'Login successful',
-        token,
-        user: {
+      if (user) {
+        console.log('[COMPANY-AUTH] ✓ Found CompanyUser in database');
+        console.log('[COMPANY-AUTH] CompanyUser data:', {
           id: user.id,
           email: user.email,
+          is_verified: user.is_verified,
+          has_password: !!user.password,
           company_name: user.company_name,
           phone_number: user.phone_number,
           company_person: user.company_person,
-          company_id: company.id,
-          company_status: company.company_status,
-        },
-      });
+        });
+
+        if (!user.is_verified) {
+          console.log('[COMPANY-AUTH] ❌ User not verified');
+          return res.status(403).json({
+            error: 'Email not verified. Please complete registration.',
+            action: 'complete_registration',
+          });
+        }
+        console.log('[COMPANY-AUTH] ✓ User is verified');
+
+        const profileComplete = await CompanyUser.isProfileComplete(user.id);
+        console.log('[COMPANY-AUTH] Profile complete:', profileComplete);
+        
+        if (!profileComplete) {
+          console.log('[COMPANY-AUTH] ❌ Profile incomplete');
+          return res.status(403).json({
+            error: 'Please complete your profile',
+            action: 'complete_profile',
+          });
+        }
+        console.log('[COMPANY-AUTH] ✓ Profile is complete');
+
+        // Compare passwords
+        console.log('[COMPANY-AUTH] Step 2: Comparing passwords...');
+        console.log('[COMPANY-AUTH] Password entered: ' + password);
+        console.log('[COMPANY-AUTH] Hashed password in DB: ' + user.password.substring(0, 20) + '...');
+        
+        const passwordMatch = await PasswordUtils.comparePassword(password, user.password);
+        console.log('[COMPANY-AUTH] Password match result:', passwordMatch);
+        
+        if (!passwordMatch) {
+          console.log('[COMPANY-AUTH] ❌ Password mismatch');
+          console.log('========== [COMPANY-AUTH LOGIN] FAILED - PASSWORD MISMATCH ==========\n');
+          return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        console.log('[COMPANY-AUTH] ✓ Password matches');
+
+        await CompanyUser.updateLastLogin(user.id);
+
+        // Fetch company record to get approval status and ID for token
+        console.log('[COMPANY-AUTH] Step 3: Fetching Company record...');
+        const company = await Company.findByEmail(normalizedEmail);
+        
+        if (!company) {
+          console.log('[COMPANY-AUTH] ❌ Company record not found');
+          return res.status(404).json({ error: 'Company record not found' });
+        }
+        console.log('[COMPANY-AUTH] ✓ Found Company record:', company.id);
+
+        const token = jwt.sign(
+          {
+            type: 'company',
+            user_id: user.id,
+            company_id: company.id,
+            email: user.email,
+            company_name: user.company_name,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: '30d' }
+        );
+
+        console.log('[COMPANY-AUTH] ✓ JWT Token generated');
+        console.log('========== [COMPANY-AUTH LOGIN] SUCCESS ==========\n');
+
+        res.json({
+          message: 'Login successful',
+          token,
+          user: {
+            id: user.id,
+            email: user.email,
+            company_name: user.company_name,
+            phone_number: user.phone_number,
+            company_person: user.company_person,
+            company_id: company.id,
+            company_status: company.company_status,
+          },
+        });
+      } else {
+        console.log('[COMPANY-AUTH] ⚠️ CompanyUser NOT found in database');
+        console.log('========== [COMPANY-AUTH LOGIN] FAILED - USER NOT FOUND ==========\n');
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
     } catch (error) {
-      console.error('[COMPANY-AUTH] Login error:', error);
+      console.error('[COMPANY-AUTH] ❌ Unexpected error:', error.message);
+      console.error('[COMPANY-AUTH] Stack:', error.stack);
+      console.log('========== [COMPANY-AUTH LOGIN] ERROR ==========\n');
       next(error);
     }
   }

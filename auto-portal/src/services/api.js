@@ -1,11 +1,10 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/url';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
-console.log('[AUTO-PORTAL API] Initialized with API_URL:', API_URL);
+console.log('[AUTO-PORTAL API] Initialized with API_BASE_URL:', API_BASE_URL);
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
 });
 
 // Add auto auth token to requests
@@ -47,11 +46,9 @@ export const autoPortalService = {
   getAuto: (autoId) => api.get(`/auto-portal/${autoId}`),
   uploadImage: (autoId, file) => {
     const formData = new FormData();
-    formData.append('auto_id', autoId);
     formData.append('image', file);
-    return api.post('/auto-portal/upload-image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    // Don't manually set Content-Type header - axios will set it correctly with FormData
+    return api.post('/auto-portal/upload-image', formData);
   },
 };
 

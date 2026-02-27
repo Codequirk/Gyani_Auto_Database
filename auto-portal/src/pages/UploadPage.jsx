@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { autoPortalService } from '../services/api';
 import { Card, Button, ErrorAlert, SuccessAlert, LoadingSpinner } from '../components/UI';
+import { getFullImageUrl } from '../config/url';
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -399,7 +400,7 @@ export default function UploadPage() {
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">📸 Your Latest Upload</h3>
                   <div className="bg-gray-100 rounded-lg overflow-hidden">
                     <img
-                      src={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5001'}${auto.image_url}?t=${Date.now()}`}
+                      src={`${getFullImageUrl(auto.image_url)}?t=${Date.now()}`}
                       alt="Uploaded advertisement"
                       className="w-full max-h-96 object-contain"
                     />

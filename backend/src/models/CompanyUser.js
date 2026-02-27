@@ -53,21 +53,36 @@ class CompanyUser {
    * Create new user
    */
   static async create(data) {
+    console.log('[COMPANY-USER-MODEL] Creating new user with data:', {
+      email: data.email,
+      has_password: !!data.password,
+      company_name: data.company_name,
+      phone_number: data.phone_number,
+      company_person: data.company_person,
+      is_verified: data.is_verified,
+    });
+
     const id = uuidv4();
     
-    await db('company_users').insert({
-      id,
-      email: data.email.toLowerCase(),
-      password: data.password || null,
-      google_id: data.google_id || null,
-      company_name: data.company_name || null,
-      phone_number: data.phone_number || null,
-      company_person: data.company_person || null,
-      is_verified: data.is_verified || false,
-      verified_at: data.is_verified ? new Date() : null,
-      created_at: new Date(),
-      updated_at: new Date(),
-    });
+    try {
+      await db('company_users').insert({
+        id,
+        email: data.email.toLowerCase(),
+        password: data.password || null,
+        google_id: data.google_id || null,
+        company_name: data.company_name || null,
+        phone_number: data.phone_number || null,
+        company_person: data.company_person || null,
+        is_verified: data.is_verified || false,
+        verified_at: data.is_verified ? new Date() : null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      console.log('[COMPANY-USER-MODEL] ✓ User created with ID:', id);
+    } catch (error) {
+      console.error('[COMPANY-USER-MODEL] ❌ Error creating user:', error.message);
+      throw error;
+    }
 
     return this.findById(id);
   }
@@ -129,10 +144,29 @@ class CompanyUser {
    * Get user with password (for authentication)
    */
   static async findByEmailWithPassword(email) {
+    console.log('[COMPANY-USER-MODEL] findByEmailWithPassword called with email:', email);
+    
     const user = await db('company_users')
       .where(db.raw('LOWER(email) = ?', [email.toLowerCase()]))
       .where({ deleted_at: null })
       .first();
+
+    if (user) {
+      console.log('[COMPANY-USER-MODEL] ✓ Found user:', {
+        id: user.id,
+        email: user.email,
+        is_verified: user.is_verified,
+        has_password: !!user.password,
+      });
+    } else {
+      console.log('[COMPANY-USER-MODEL] ⚠️ No user found for email:', email);
+      console.log('[COMPANY-USER-MODEL] Debugging: Checking all company_users in DB');
+      const allUsers = await db('company_users').where({ deleted_at: null });
+      console.log('[COMPANY-USER-MODEL] Total users in DB:', allUsers.length);
+      if (allUsers.length > 0) {
+        console.log('[COMPANY-USER-MODEL] Sample users:', allUsers.slice(0, 3).map(u => ({ id: u.id, email: u.email })));
+      }
+    }
 
     return user; // Keep password for comparison
   }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { paymentService, autoMonthlyPaymentService, companyService, autoService, areaService } from '../services/api';
+import { API_BASE_URL } from '../config/url';
 import Navbar from '../components/Navbar';
 import { Card, Button, Badge } from '../components/UI';
 import { formatDate, formatDaysRemaining } from '../utils/helpers';
@@ -306,7 +307,7 @@ export default function PaymentAdminPage() {
       const token = localStorage.getItem('auth_token');
       console.log('🔐 Token available:', !!token);
       
-      const url = `http://localhost:5001/api/autos/${autoId}`;
+      const url = `${API_BASE_URL}/autos/${autoId}`;
       console.log('📤 Sending DELETE to:', url);
       
       const response = await fetch(url, {

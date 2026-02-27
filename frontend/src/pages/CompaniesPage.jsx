@@ -105,6 +105,11 @@ const CompaniesPage = () => {
       clearTimeout(debounceTimer.current);
     }
     debounceTimer.current = setTimeout(() => {
+      if (search.trim()) {
+        console.log('[COMPANY-SEARCH] Searching for:', search, '(name or email)');
+      } else {
+        console.log('[COMPANY-SEARCH] Cleared search filter');
+      }
       setDebouncedSearch(search);
     }, 300); // 300ms delay
 
@@ -116,6 +121,19 @@ const CompaniesPage = () => {
     loading: companiesLoading,
     refetch: refetchCompanies,
   } = useFetch(() => companyService.list({ search: debouncedSearch, status: 'ACTIVE' }), [debouncedSearch]);
+
+  // Log company search results
+  useEffect(() => {
+    if (!companies) return;
+    
+    if (debouncedSearch) {
+      if (companies.length > 0) {
+        console.log(`[COMPANY-SEARCH] ✓ Found ${companies.length} companies matching "${debouncedSearch}":`, companies.map(c => ({ name: c.name, email: c.email })));
+      } else {
+        console.log(`[COMPANY-SEARCH] ⚠️ No companies found for: "${debouncedSearch}"`);
+      }
+    }
+  }, [companies, debouncedSearch]);
 
   const handleEdit = (company) => {
     setEditingCompanyId(company.id);
@@ -264,15 +282,15 @@ const CompaniesPage = () => {
       }
 
       if (editingCompanyId) {
-        console.log('Updating company with data:', submitData);
+        console.log('[COMPANY-FORM] Updating company:', { id: editingCompanyId, name: name, email: validEmails[0] });
         const response = await companyService.update(editingCompanyId, submitData);
-        console.log('Company updated:', response);
+        console.log('[COMPANY-FORM] ✓ Company updated successfully');
         setSuccessMessage('Company updated successfully!');
       } else {
-        console.log('Creating company with data:', submitData);
+        console.log('[COMPANY-FORM] Creating new company:', { name: name, email: validEmails[0] });
         const response = await companyService.create(submitData);
-        console.log('Company created:', response);
-        setSuccessMessage('Company created successfully!');
+        console.log('[COMPANY-FORM] ✓ Company and authentication created successfully');
+        setSuccessMessage('Company created successfully! You can now login via company portal with the provided email and password.');
       }
       
       setFormState({
@@ -288,10 +306,20 @@ const CompaniesPage = () => {
       
       refetchCompanies();
       
-      setTimeout(() => setSuccessMessage(''), 3000);
+      setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
-      console.error('Error creating company:', err);
-      const errorMsg = err.response?.data?.error || err.message || 'Failed to create company';
+      console.error('[COMPANY-FORM] ❌ Error:', err);
+      let errorMsg = 'Failed to save company';
+      
+      if (err.response?.data?.error) {
+        errorMsg = err.response.data.error;
+      } else if (err.response?.data?.details) {
+        errorMsg = `${err.response.data.error}: ${err.response.data.details}`;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      
+      console.error('[COMPANY-FORM] Error details:', errorMsg);
       setErrorMessage(errorMsg);
     } finally {
       setLoading(false);
@@ -323,7 +351,7 @@ const CompaniesPage = () => {
         <Card className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input
-              placeholder="Search company name"
+              placeholder="Search company name or email"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -442,20 +470,22 @@ const CompaniesPage = () => {
                   />
                 </div>
 
-                {/* Password */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password {!editingCompanyId && <span className="text-red-600">*</span>}
-                  </label>
-                  <input
-                    type="password"
-                    value={formState.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder={editingCompanyId ? 'Leave empty to keep current password' : 'Enter password (min 6 characters)'}
-                    required={!editingCompanyId}
-                  />
-                </div>
+                {/* Password - Only shown when creating new company */}
+                {!editingCompanyId && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Password <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={formState.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter password (min 6 characters)"
+                      required
+                    />
+                  </div>
+                )}
 
                 {/* Email */}
                 <div className="mb-4">

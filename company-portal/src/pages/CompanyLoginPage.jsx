@@ -82,16 +82,22 @@ export default function CompanyLoginPage() {
         return;
       }
 
-      console.log('[COMPANY-LOGIN] Logging in user:', email);
+      console.log('\n========== [COMPANY-LOGIN FRONTEND] START ==========');
+      console.log('[COMPANY-LOGIN] Email entered:', email);
+      console.log('[COMPANY-LOGIN] Email trimmed:', email.trim());
+      console.log('[COMPANY-LOGIN] Email lowercased:', email.trim().toLowerCase());
+      console.log('[COMPANY-LOGIN] Password length:', password.length);
+      console.log('[COMPANY-LOGIN] Sending login request...');
 
       const response = await companyAuthService.login({
         email: email.trim(),
         password,
       });
 
-      console.log('[COMPANY-LOGIN] Response:', response.data);
+      console.log('[COMPANY-LOGIN] ✓ Response received:', response.data);
 
       if (response.data && response.data.token) {
+        console.log('[COMPANY-LOGIN] ✓ Login successful!');
         setSuccess('✓ Login successful!');
         
         console.log('[COMPANY-LOGIN] Response from backend:', {
@@ -117,17 +123,27 @@ export default function CompanyLoginPage() {
         
         // Use context login to populate auth state
         login(companyData, response.data.token);
+        
+        console.log('========== [COMPANY-LOGIN FRONTEND] SUCCESS ==========\n');
 
         // Redirect to dashboard
         setTimeout(() => {
           navigate('/dashboard');
         }, 1000);
       } else {
+        console.log('[COMPANY-LOGIN] ❌ Invalid response structure:', response.data);
         setError('Invalid response from server');
       }
     } catch (err) {
-      console.error('[COMPANY-LOGIN] Error:', err);
+      console.error('[COMPANY-LOGIN] ❌ Error caught:', err);
+      console.log('[COMPANY-LOGIN] Error response:', err.response?.data);
+      console.log('[COMPANY-LOGIN] Error message:', err.message);
+      console.log('[COMPANY-LOGIN] Error status:', err.response?.status);
+      
       const errorMessage = err.response?.data?.error || err.message || 'Login failed';
+      console.log('[COMPANY-LOGIN] Final error to display:', errorMessage);
+      console.log('========== [COMPANY-LOGIN FRONTEND] FAILED ==========\n');
+      
       setError(errorMessage);
     } finally {
       setLoading(false);

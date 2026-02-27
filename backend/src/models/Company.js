@@ -7,7 +7,10 @@ class Company {
   }
 
   static async findByEmail(email) {
-    return db('companies').where({ email, deleted_at: null }).first();
+    return db('companies')
+      .where(db.raw('LOWER(email) = ?', [email.toLowerCase().trim()]))
+      .where({ deleted_at: null })
+      .first();
   }
 
   static async findByGoogleId(google_id) {
@@ -22,15 +25,19 @@ class Company {
     }
 
     if (filters.search) {
-      // Search in name, email (string), and emails (JSONB array)
-      query = query.whereRaw(`(name ILIKE ? OR email ILIKE ? OR emails::text ILIKE ?)`, [
-        `%${filters.search}%`,
-        `%${filters.search}%`,
-        `%${filters.search}%`
-      ]);
+      // Normalize search term for case-insensitive matching
+      const searchTerm = `%${filters.search.toLowerCase().trim()}%`;
+      console.log('[COMPANY-MODEL] Searching with term:', searchTerm);
+      
+      // Search in name (case-insensitive) and email (case-insensitive)
+      query = query.whereRaw(
+        `(LOWER(name) LIKE ? OR LOWER(email) LIKE ?)`,
+        [searchTerm, searchTerm]
+      );
     }
 
-    return query.orderBy('created_at', 'desc');
+    const results = query.orderBy('created_at', 'desc');
+    return results;
   }
 
   static async create(data) {

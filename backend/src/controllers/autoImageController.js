@@ -11,6 +11,26 @@ const fs = require('fs').promises;
 const path = require('path');
 
 /**
+ * Helper function to convert relative image URLs to production-safe full URLs
+ */
+const getFullImageUrl = (relativeUrl) => {
+  if (!relativeUrl) return null;
+  
+  // If it's already a full URL, return as-is
+  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+    return relativeUrl;
+  }
+  
+  // Get BASE_URL from environment
+  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
+  
+  // Remove leading slash if present to avoid double slashes
+  const cleanUrl = relativeUrl.startsWith('/') ? relativeUrl.substring(1) : relativeUrl;
+  
+  return `${baseUrl}/${cleanUrl}`;
+};
+
+/**
  * Get autos categorized into 3 image sections
  */
 exports.getImageSections = async (req, res, next) => {
@@ -39,6 +59,7 @@ exports.getImageSections = async (req, res, next) => {
       if (section) {
         sections[section].push({
           ...auto,
+          image_url: getFullImageUrl(auto.image_url), // ✅ Convert to full URL for frontend
           section,
           uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
           weekNumber: auto.image_week_number,
@@ -49,6 +70,7 @@ exports.getImageSections = async (req, res, next) => {
         console.warn(`⚠️  Auto ${auto.auto_no} returned null section, placing in MISSING`);
         sections.MISSING.push({
           ...auto,
+          image_url: getFullImageUrl(auto.image_url), // ✅ Convert to full URL for frontend
           section: 'MISSING',
           uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
           weekNumber: auto.image_week_number,
@@ -145,7 +167,7 @@ exports.uploadImage = async (req, res, next) => {
       });
     }
     
-    // Save image metadata to database
+    // Save image metadata to database with relative path for file operations
     const imageUrl = `/uploads/auto-images/${fileName}`;
     
     const updateResult = await db('autos')
@@ -172,7 +194,7 @@ exports.uploadImage = async (req, res, next) => {
       auto: {
         id,
         auto_no: auto.auto_no,
-        imageUrl,
+        imageUrl: getFullImageUrl(imageUrl), // ✅ Return full URL to frontend
         uploadedDate: new Date().toLocaleDateString('en-IN'),
         weekNumber: currentWeek,
         year: currentYear,

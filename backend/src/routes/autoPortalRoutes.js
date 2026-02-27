@@ -12,6 +12,26 @@ const { v4: uuidv4 } = require('uuid');
 const autoAuthMiddleware = require('../middleware/autoAuth');
 const db = require('../models/db');
 
+/**
+ * Helper function to convert relative image URLs to production-safe full URLs
+ */
+const getFullImageUrl = (relativeUrl) => {
+  if (!relativeUrl) return null;
+  
+  // If it's already a full URL, return as-is
+  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+    return relativeUrl;
+  }
+  
+  // Get BASE_URL from environment
+  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
+  
+  // Remove leading slash if present to avoid double slashes
+  const cleanUrl = relativeUrl.startsWith('/') ? relativeUrl.substring(1) : relativeUrl;
+  
+  return `${baseUrl}/${cleanUrl}`;
+};
+
 // Ensure upload directory exists
 const uploadDir = path.join(__dirname, '../../uploads/auto-images');
 if (!fs.existsSync(uploadDir)) {
@@ -56,7 +76,7 @@ router.get('/:autoId', autoAuthMiddleware, async (req, res, next) => {
       auto_no: auto.auto_no,
       owner_name: auto.owner_name,
       driver_phone: auto.driver_phone,
-      image_url: auto.image_url || null,
+      image_url: getFullImageUrl(auto.image_url), // ✅ Return full URL to frontend
       image_upload_date: auto.image_upload_date || null,
       image_week_number: auto.image_week_number || null,
       image_year: auto.image_year || null,
@@ -133,7 +153,7 @@ router.post('/upload-image', autoAuthMiddleware, upload.single('image'), async (
 
     res.json({
       message: 'Image uploaded successfully',
-      image_url: imageUrl,
+      image_url: getFullImageUrl(imageUrl), // ✅ Return full URL to frontend
       image_upload_date: now,
       image_week_number: weekNumber,
       image_year: now.getFullYear(),

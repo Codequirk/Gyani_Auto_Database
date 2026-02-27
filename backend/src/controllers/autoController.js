@@ -5,6 +5,26 @@ const { mergeConsecutiveAssignments, isConsecutive } = require('../utils/assignm
 const { deleteOldCompletedAssignments } = require('../utils/assignmentCleanup');
 
 /**
+ * Helper function to convert relative image URLs to production-safe full URLs
+ */
+const getFullImageUrl = (relativeUrl) => {
+  if (!relativeUrl) return null;
+  
+  // If it's already a full URL, return as-is
+  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+    return relativeUrl;
+  }
+  
+  // Get BASE_URL from environment
+  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
+  
+  // Remove leading slash if present to avoid double slashes
+  const cleanUrl = relativeUrl.startsWith('/') ? relativeUrl.substring(1) : relativeUrl;
+  
+  return `${baseUrl}/${cleanUrl}`;
+};
+
+/**
  * Helper function to determine the correct status of an auto based on its assignments
  * Logic:
  * - ACTIVE: if start_date <= today <= end_date
@@ -148,6 +168,7 @@ exports.listAutos = async (req, res, next) => {
         const displayStatus = determineAutoStatus(enrichedAssignments);
         expandedAutos.push({
           ...freshAuto,  // Use fresh auto with updated status
+          image_url: getFullImageUrl(freshAuto.image_url), // ✅ Convert to full URL for frontend
           days_remaining: null,
           current_company: null,
           display_status: displayStatus,
@@ -194,6 +215,7 @@ exports.listAutos = async (req, res, next) => {
         
         expandedAutos.push({
           ...freshAuto,  // Use fresh auto with updated status
+          image_url: getFullImageUrl(freshAuto.image_url), // ✅ Convert to full URL for frontend
           days_remaining: currentAssignmentDaysRemaining,
           current_company: mostRecentAssignment.company_name,
           display_status: displayStatus,

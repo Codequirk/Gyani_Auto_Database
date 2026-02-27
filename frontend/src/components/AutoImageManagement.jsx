@@ -2,22 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { Button, LoadingSpinner, ErrorAlert, Badge } from './UI';
 import { Link } from 'react-router-dom';
-
-// Get backend base URL (strip '/api' from the API URL)
-let BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace('/api', '');
-
-// Ensure it doesn't end with a slash
-if (BACKEND_BASE_URL.endsWith('/')) {
-  BACKEND_BASE_URL = BACKEND_BASE_URL.slice(0, -1);
-}
-
-// Ensure it has a protocol
-if (!BACKEND_BASE_URL.startsWith('http://') && !BACKEND_BASE_URL.startsWith('https://')) {
-  BACKEND_BASE_URL = 'http://localhost:5001';
-}
-
-console.log('[AutoImageManagement] BACKEND_BASE_URL:', BACKEND_BASE_URL);
-console.log('[AutoImageManagement] VITE_API_URL:', import.meta.env.VITE_API_URL);
+import { BACKEND_BASE_URL, getFullImageUrl } from '../config/url';
 
 /**
  * AutoImageManagement Component
@@ -330,7 +315,7 @@ const AutoImageManagement = () => {
                       {auto.image_url && sectionName !== 'UPLOADED' && (
                         <div className="mb-3">
                           <img
-                            src={`${BACKEND_BASE_URL}${auto.image_url}`}
+                            src={getFullImageUrl(auto.image_url)}
                             alt={auto.auto_no}
                             className="max-w-xs h-auto rounded border border-gray-300 cursor-pointer hover:opacity-80 transition"
                             onDoubleClick={() => {
@@ -482,19 +467,19 @@ const AutoImageManagement = () => {
             <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-gray-100">
               {!imageLoadFailed ? (
                 <img
-                  src={`${BACKEND_BASE_URL}${fullViewImage.image_url}`}
+                  src={getFullImageUrl(fullViewImage.image_url)}
                   alt={fullViewImage.auto_no}
                   className="max-h-full max-w-full object-contain"
                   onLoad={() => {
                     console.log('[Modal] Image loaded successfully:', {
                       auto: fullViewImage.auto_no,
                       image_url: fullViewImage.image_url,
-                      fullUrl: `${BACKEND_BASE_URL}${fullViewImage.image_url}`,
-                      BACKEND_BASE_URL
+                      fullUrl: getFullImageUrl(fullViewImage.image_url),
+                      BASE_URL
                     });
                   }}
                   onError={(e) => {
-                    const fullUrl = `${BACKEND_BASE_URL}${fullViewImage.image_url}`;
+                    const fullUrl = getFullImageUrl(fullViewImage.image_url);
                     console.error('[Modal] Image failed to load:', {
                       auto: fullViewImage.auto_no,
                       image_url: fullViewImage.image_url,
