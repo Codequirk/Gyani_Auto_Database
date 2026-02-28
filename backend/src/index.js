@@ -43,7 +43,14 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Static file serving for uploads - CRITICAL FOR IMAGE DELIVERY
+const uploadsPath = path.resolve(__dirname, '../uploads');
+console.log(`[STATIC-FILES] Registering static middleware for /uploads`);
+console.log(`[STATIC-FILES] Physical path: ${uploadsPath}`);
+console.log(`[STATIC-FILES] Path exists: ${fs.existsSync(uploadsPath)}`);
+app.use('/uploads', express.static(uploadsPath));
+console.log(`[STATIC-FILES] Static middleware registered successfully`);
 
 // Initialize Passport
 app.use(passport.initialize());

@@ -7,7 +7,8 @@ const Auto = require('../models/Auto');
 const db = require('../models/db');
 const imageUtils = require('../utils/imageManagement');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 
 /**
@@ -130,7 +131,7 @@ exports.uploadImage = async (req, res, next) => {
     console.log(`[uploadImage] Auto lookup result:`, auto ? { id: auto.id, auto_no: auto.auto_no, deleted_at: auto.deleted_at } : 'NOT FOUND');
     if (!auto) {
       // Clean up uploaded file
-      await fs.unlink(req.file.path).catch(() => {});
+      await fsPromises.unlink(req.file.path).catch(() => {});
       console.error(`[uploadImage] Auto ${id} not found in database`);
       return res.status(404).json({ error: 'Auto not found' });
     }
@@ -144,11 +145,11 @@ exports.uploadImage = async (req, res, next) => {
     const uploadDir = path.join(__dirname, '../../uploads/auto-images');
     
     // Ensure upload directory exists
-    await fs.mkdir(uploadDir, { recursive: true });
+    await fsPromises.mkdir(uploadDir, { recursive: true });
     
     // Save file
     const filePath = path.join(uploadDir, fileName);
-    await fs.copyFile(req.file.path, filePath);
+    await fsPromises.copyFile(req.file.path, filePath);
     
     // ✅ VERIFY FILE WAS ACTUALLY COPIED
     if (!fs.existsSync(filePath)) {
@@ -157,12 +158,12 @@ exports.uploadImage = async (req, res, next) => {
     }
     console.log(`✓ File verified on disk: ${filePath}`);
     
-    await fs.unlink(req.file.path).catch(() => {});
+    await fsPromises.unlink(req.file.path).catch(() => {});
     
     // If auto already has an old image, optionally delete it
     if (auto.image_url) {
       const oldImagePath = path.join(__dirname, '../../', auto.image_url);
-      await fs.unlink(oldImagePath).catch(() => {
+      await fsPromises.unlink(oldImagePath).catch(() => {
         console.warn(`Could not delete old image: ${oldImagePath}`);
       });
     }
@@ -228,7 +229,7 @@ exports.deleteImage = async (req, res, next) => {
     
     // Delete file from storage
     const imagePath = path.join(__dirname, '../../', auto.image_url);
-    await fs.unlink(imagePath).catch(() => {
+    await fsPromises.unlink(imagePath).catch(() => {
       console.warn(`Could not delete image file: ${imagePath}`);
     });
     
@@ -278,7 +279,7 @@ exports.autoDeleteExpiredImages = async () => {
     for (const auto of autosToDelete) {
       if (imageUtils.shouldAutoDeleteImage(auto)) {
         const imagePath = path.join(__dirname, '../../', auto.image_url);
-        await fs.unlink(imagePath).catch(() => {
+        await fsPromises.unlink(imagePath).catch(() => {
           console.warn(`Could not delete expired image: ${imagePath}`);
         });
         
