@@ -322,8 +322,116 @@ exports.updateTicket = async (req, res, next) => {
 };
 
 /**
- * GET /tickets/:id/available-autos
- * 
+ * Company: Dismiss a rejected ticket notification
+ * Only hides from UI, does not delete database record
+ */
+exports.dismissTicket = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { company_id } = req.body;
+
+    if (!id || !company_id) {
+      return res.status(400).json({ error: 'Ticket ID and Company ID are required' });
+    }
+
+    const ticket = await CompanyTicket.findById(id);
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    // Verify ticket belongs to the company
+    if (ticket.company_id !== company_id) {
+      return res.status(403).json({ error: 'Unauthorized: Ticket does not belong to this company' });
+    }
+
+    if (ticket.ticket_status !== 'REJECTED') {
+      return res.status(400).json({ error: 'Only rejected tickets can be dismissed' });
+    }
+
+    if (ticket.dismissed_by_company) {
+      return res.status(400).json({ error: 'Ticket already dismissed' });
+    }
+
+    const dismissedTicket = await CompanyTicket.dismiss(id);
+
+    console.log(`✓ Ticket dismissed by company: ${id}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Ticket dismissed successfully',
+      ticket: dismissedTicket
+    });
+  } catch (error) {
+    console.error('Error dismissing ticket:', error);
+    return res.status(500).json({ 
+      error: 'Failed to dismiss ticket',
+      message: error.message 
+    });
+  }
+};
+
+/**
+ * Delete selected tickets by IDs
+ * Admin endpoint to delete multiple tickets
+ */
+exports.deleteSelectedTickets = async (req, res, next) => {
+  try {
+    const { ticket_ids } = req.body;
+
+    if (!ticket_ids || !Array.isArray(ticket_ids) || ticket_ids.length === 0) {
+      return res.status(400).json({ error: 'ticket_ids array is required and must not be empty' });
+    }
+
+    // Delete all tickets with IDs in the provided array
+    const db = require('../models/db');
+    const deletedCount = await db('company_tickets').whereIn('id', ticket_ids).delete();
+
+    console.log(`[DELETE] Deleted ${deletedCount} tickets`);
+
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} ticket(s) deleted successfully`,
+      deleted_count: deletedCount
+    });
+  } catch (error) {
+    console.error('[DELETE] Error deleting tickets:', error);
+    next(error);
+  }
+};
+
+/**
+ * Delete all tickets with a specific status
+ * Admin endpoint to delete all tickets of a certain status
+ */
+exports.deleteAllTicketsWithStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+
+    if (!status || !['PENDING', 'APPROVED', 'REJECTED'].includes(status.toUpperCase())) {
+      return res.status(400).json({ error: 'Valid status (PENDING, APPROVED, REJECTED) is required' });
+    }
+
+    // Delete all tickets with the specified status
+    const db = require('../models/db');
+    const deletedCount = await db('company_tickets')
+      .where({ ticket_status: status.toUpperCase() })
+      .delete();
+
+    console.log(`[DELETE] Deleted ${deletedCount} tickets with status ${status}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} ticket(s) with status ${status} deleted successfully`,
+      deleted_count: deletedCount
+    });
+  } catch (error) {
+    console.error('[DELETE] Error deleting tickets by status:', error);
+    next(error);
+  }
+};
+
+/**
  * Fetch available autos for a ticket with deterministic sorting.
  * 
  * BACKEND OWNS ALL LOGIC:
@@ -478,6 +586,72 @@ exports.getAvailableAutosForTicket = async (req, res, next) => {
 
   } catch (error) {
     console.error('[AUTO-SUGGEST] Error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Admin: Delete selected tickets by IDs
+ * DELETE /api/company-tickets/admin/delete-selected
+ */
+exports.deleteSelectedTickets = async (req, res, next) => {
+  try {
+    const { ticket_ids } = req.body;
+
+    if (!ticket_ids || !Array.isArray(ticket_ids) || ticket_ids.length === 0) {
+      return res.status(400).json({ error: 'ticket_ids array is required and must not be empty' });
+    }
+
+    // Delete tickets
+    const db = require('../models/db');
+    const deletedCount = await db('company_tickets')
+      .whereIn('id', ticket_ids)
+      .delete();
+
+    console.log(`[DELETE] Deleted ${deletedCount} tickets:`, ticket_ids);
+
+    res.json({
+      success: true,
+      message: `${deletedCount} ticket(s) deleted successfully`,
+      deleted_count: deletedCount,
+    });
+  } catch (error) {
+    console.error('[DELETE] Error deleting selected tickets:', error);
+    next(error);
+  }
+};
+
+/**
+ * Admin: Delete all tickets of a specific status
+ * DELETE /api/company-tickets/admin/delete-all
+ */
+exports.deleteAllTickets = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'status is required (APPROVED or REJECTED)' });
+    }
+
+    if (!['APPROVED', 'REJECTED', 'PENDING'].includes(status.toUpperCase())) {
+      return res.status(400).json({ error: 'status must be APPROVED, REJECTED, or PENDING' });
+    }
+
+    // Delete all tickets with this status
+    const db = require('../models/db');
+    const deletedCount = await db('company_tickets')
+      .where('ticket_status', status.toUpperCase())
+      .delete();
+
+    console.log(`[DELETE] Deleted all ${status} tickets. Count: ${deletedCount}`);
+
+    res.json({
+      success: true,
+      message: `${deletedCount} ${status.toLowerCase()} ticket(s) deleted successfully`,
+      deleted_count: deletedCount,
+    });
+  } catch (error) {
+    console.error('[DELETE] Error deleting all tickets:', error);
     next(error);
   }
 };

@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
-const authMiddleware = require('../middleware/auth');
+const dualAuthMiddleware = require('../middleware/dualAuth');
 
-// All payment routes require authentication
-router.use(authMiddleware);
+// All payment routes require authentication (accepts both admin and company tokens)
+router.use(dualAuthMiddleware);
 
 /**
  * GET /api/payments/all

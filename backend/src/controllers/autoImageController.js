@@ -33,68 +33,93 @@ const getFullImageUrl = (relativeUrl) => {
 
 /**
  * Get autos categorized into 3 image sections
+ * 
+ * ONLY ACTIVE, non-deleted autos appear in image management.
+ * Sections are computed dynamically based on week numbers - NOT stored in database.
  */
 exports.getImageSections = async (req, res, next) => {
   try {
-    console.log('📋 Fetching auto image sections...');
+    console.log('📋 Fetching auto image sections (ACTIVE autos only)...');
     
-    // Get ALL non-deleted autos (not just those with ACTIVE assignments)
-    // This ensures images show up regardless of assignment status
-    const allAutos = await db('autos')
-      .where({ deleted_at: null })
-      .select('id', 'auto_no', 'owner_name', 'status', 'image_url', 'image_upload_date', 'image_week_number', 'image_year');
-    
-    console.log(`✓ Found ${allAutos.length} total non-deleted autos`);
-    
-    // Categorize ALL autos by their image status (not filtered by assignment)
+    // ✅ CRITICAL: Fetch ONLY ACTIVE, non-deleted autos
+    const activeAutos = await db('autos')
+  .join('assignments', 'autos.id', 'assignments.auto_id')
+  .where('assignments.status', 'ACTIVE')
+  .whereNull('autos.deleted_at')
+  .distinct(
+    'autos.id',
+    'autos.auto_no',
+    'autos.owner_name',
+    'autos.status',
+    'autos.image_url',
+    'autos.image_upload_date',
+    'autos.image_week_number',
+    'autos.image_year'
+  );
+
+console.log(`✓ Found ${activeAutos.length} autos with ACTIVE assignments`);
+    // Compute sections dynamically based on week numbers
     const sections = {
       MISSING: [],
       BUFFER: [],
       UPLOADED: []
     };
     
-    for (const auto of allAutos) {
-      const section = imageUtils.getAutoImageSection(auto);
+    const currentWeek = imageUtils.getCurrentWeekNumber();
+    const currentYear = imageUtils.getCurrentYear();
+    
+    for (const auto of activeAutos) {
+      // Determine section based on week numbers only
+      let section;
+      let sectionImageUrl = null; // For MISSING section, never return image_url
       
-      // Every auto MUST appear in one of the 3 sections
-      if (section) {
-        sections[section].push({
-          ...auto,
-          image_url: getFullImageUrl(auto.image_url), // ✅ Convert to full URL for frontend
-          section,
-          uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
-          weekNumber: auto.image_week_number,
-          year: auto.image_year
-        });
-      } else {
-        // Safety fallback: if section is null, place in MISSING
-        console.warn(`⚠️  Auto ${auto.auto_no} returned null section, placing in MISSING`);
-        sections.MISSING.push({
-          ...auto,
-          image_url: getFullImageUrl(auto.image_url), // ✅ Convert to full URL for frontend
-          section: 'MISSING',
-          uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
-          weekNumber: auto.image_week_number,
-          year: auto.image_year
-        });
+      // No image at all = MISSING
+      if (!auto.image_url || !auto.image_week_number) {
+        section = 'MISSING';
       }
+      // Current week image = UPLOADED
+      else if (auto.image_week_number === currentWeek && auto.image_year === currentYear) {
+        section = 'UPLOADED';
+        sectionImageUrl = getFullImageUrl(auto.image_url);
+      }
+      // Previous week image = BUFFER
+      else if (imageUtils.isPreviousWeek(auto.image_week_number, auto.image_year)) {
+        section = 'BUFFER';
+        sectionImageUrl = getFullImageUrl(auto.image_url);
+      }
+      // Any other old image = MISSING (never show old images)
+      else {
+        section = 'MISSING';
+      }
+      
+      sections[section].push({
+        id: auto.id,
+        auto_no: auto.auto_no,
+        owner_name: auto.owner_name,
+        status: auto.status,
+        image_url: sectionImageUrl, // ✅ NULL for MISSING, full URL for BUFFER/UPLOADED
+        uploadedDate: auto.image_upload_date ? new Date(auto.image_upload_date).toLocaleDateString('en-IN') : null,
+        weekNumber: auto.image_week_number,
+        year: auto.image_year,
+        section // Include section name
+      });
     }
     
-    console.log(`✓ Section breakdown:`);
-    console.log(`  MISSING: ${sections.MISSING.length}`);
-    console.log(`  BUFFER: ${sections.BUFFER.length}`);
-    console.log(`  UPLOADED: ${sections.UPLOADED.length}`);
-    console.log(`  TOTAL: ${sections.MISSING.length + sections.BUFFER.length + sections.UPLOADED.length}`);
+    console.log(`✓ Section breakdown (computed):`);
+    console.log(`  UPLOADED (current week): ${sections.UPLOADED.length}`);
+    console.log(`  BUFFER (previous week): ${sections.BUFFER.length}`);
+    console.log(`  MISSING (no image or old): ${sections.MISSING.length}`);
+    console.log(`  TOTAL: ${activeAutos.length}`);
     
     // Validate math
     const totalInSections = sections.MISSING.length + sections.BUFFER.length + sections.UPLOADED.length;
-    if (totalInSections !== allAutos.length) {
-      console.error(`❌ Math error! Sections don't add up: ${sections.MISSING.length} + ${sections.BUFFER.length} + ${sections.UPLOADED.length} = ${totalInSections}, expected ${allAutos.length}`);
+    if (totalInSections !== activeAutos.length) {
+      console.error(`❌ Math error! ${totalInSections} != ${activeAutos.length}`);
     }
     
     res.json({
       summary: {
-        total: allAutos.length,
+        total: activeAutos.length,
         missing: sections.MISSING.length,
         buffer: sections.BUFFER.length,
         uploaded: sections.UPLOADED.length,
@@ -108,6 +133,14 @@ exports.getImageSections = async (req, res, next) => {
 
 /**
  * Upload or replace auto image
+ * 
+ * Stores ONLY:
+ * - image_url
+ * - image_upload_date
+ * - image_week_number
+ * - image_year
+ * 
+ * Do NOT store section status - sections are computed dynamically.
  */
 exports.uploadImage = async (req, res, next) => {
   try {
@@ -125,7 +158,7 @@ exports.uploadImage = async (req, res, next) => {
     
     console.log(`📸 Uploading image for auto ${id}...`);
     
-    // Verify auto exists (query directly without soft-delete filter for image upload)
+    // Verify auto exists
     console.log(`[uploadImage] Looking for auto with ID: ${id}`);
     const auto = await db('autos').where({ id }).first();
     console.log(`[uploadImage] Auto lookup result:`, auto ? { id: auto.id, auto_no: auto.auto_no, deleted_at: auto.deleted_at } : 'NOT FOUND');
@@ -151,24 +184,30 @@ exports.uploadImage = async (req, res, next) => {
     const filePath = path.join(uploadDir, fileName);
     await fsPromises.copyFile(req.file.path, filePath);
     
-    // ✅ VERIFY FILE WAS ACTUALLY COPIED
+    // ✅ VERIFY FILE WAS ACTUALLY COPIED before continuing
     if (!fs.existsSync(filePath)) {
       console.error(`❌ ERROR: File copy failed for ${fileName}`);
       throw new Error(`File was not successfully saved: ${fileName}`);
     }
     console.log(`✓ File verified on disk: ${filePath}`);
     
+    // Clean up temp file
     await fsPromises.unlink(req.file.path).catch(() => {});
     
-    // If auto already has an old image, optionally delete it
+    // ✅ SAFE: Delete old image file if it exists
     if (auto.image_url) {
       const oldImagePath = path.join(__dirname, '../../', auto.image_url);
-      await fsPromises.unlink(oldImagePath).catch(() => {
-        console.warn(`Could not delete old image: ${oldImagePath}`);
-      });
+      try {
+        if (fs.existsSync(oldImagePath)) {
+          await fsPromises.unlink(oldImagePath);
+          console.log(`✓ Old image file deleted: ${oldImagePath}`);
+        }
+      } catch (err) {
+        console.warn(`⚠️  Could not delete old image file: ${oldImagePath}`, err.message);
+      }
     }
     
-    // Save image metadata to database with relative path for file operations
+    // Save image metadata to database with relative path
     const imageUrl = `/uploads/auto-images/${fileName}`;
     
     const updateResult = await db('autos')
@@ -178,7 +217,7 @@ exports.uploadImage = async (req, res, next) => {
         image_upload_date: new Date(),
         image_week_number: currentWeek,
         image_year: currentYear,
-        image_status: 'UPLOADED',
+        // ❌ NO image_status - sections are computed dynamically
         updated_at: new Date(),
       });
     
@@ -195,11 +234,11 @@ exports.uploadImage = async (req, res, next) => {
       auto: {
         id,
         auto_no: auto.auto_no,
-        imageUrl: getFullImageUrl(imageUrl), // ✅ Return full URL to frontend
+        imageUrl: getFullImageUrl(imageUrl),
         uploadedDate: new Date().toLocaleDateString('en-IN'),
         weekNumber: currentWeek,
         year: currentYear,
-        section: 'UPLOADED'
+        section: 'UPLOADED' // Computed section
       },
     });
   } catch (error) {
@@ -209,15 +248,21 @@ exports.uploadImage = async (req, res, next) => {
 
 /**
  * Delete auto image manually
+ * 
+ * Safely deletes:
+ * 1. File from filesystem (with fs.existsSync check)
+ * 2. Database image fields (reset to NULL)
+ * 
+ * Does NOT store section status - it will be computed as MISSING.
  */
 exports.deleteImage = async (req, res, next) => {
   try {
     const { id } = req.params;
     const admin_id = req.admin?.id;
     
-    console.log(`🗑️  Deleting image for auto ${id}...`);
+    console.log(`🗑️  Deleting image for auto ${id} (by admin ${admin_id})`);
     
-    // Query directly without soft-delete filter
+    // Fetch auto
     const auto = await db('autos').where({ id }).first();
     if (!auto) {
       return res.status(404).json({ error: 'Auto not found' });
@@ -227,33 +272,40 @@ exports.deleteImage = async (req, res, next) => {
       return res.status(400).json({ error: 'Auto has no image to delete' });
     }
     
-    // Delete file from storage
+    // ✅ SAFE: Delete file from storage only if it exists
     const imagePath = path.join(__dirname, '../../', auto.image_url);
-    await fsPromises.unlink(imagePath).catch(() => {
-      console.warn(`Could not delete image file: ${imagePath}`);
-    });
+    try {
+      if (fs.existsSync(imagePath)) {
+        await fsPromises.unlink(imagePath);
+        console.log(`✓ Image file deleted from disk: ${imagePath}`);
+      } else {
+        console.warn(`⚠️  Image file not found on disk: ${imagePath}`);
+      }
+    } catch (err) {
+      console.warn(`⚠️  Error deleting image file: ${imagePath}`, err.message);
+    }
     
-    // Clear image metadata
-    await db('autos')
+    // ✅ RELIABLE: Clear all image metadata from database
+    const updateResult = await db('autos')
       .where({ id })
       .update({
         image_url: null,
         image_upload_date: null,
         image_week_number: null,
         image_year: null,
-        image_status: 'MISSING',
-        last_image_deleted_date: new Date(),
+        // ❌ NO image_status = 'MISSING' - section will be computed as MISSING
         updated_at: new Date(),
       });
     
-    console.log(`✓ Image deleted for auto ${id}`);
+    console.log(`✓ Image deleted for auto ${id} (File + DB cleared)`);
+    console.log(`  Database update result: ${updateResult} rows affected`);
     
     res.json({
       message: 'Image deleted successfully',
       auto: {
         id,
         auto_no: auto.auto_no,
-        section: 'MISSING'
+        section: 'MISSING' // Will be computed as MISSING on next fetch
       },
     });
   } catch (error) {
@@ -262,27 +314,83 @@ exports.deleteImage = async (req, res, next) => {
 };
 
 /**
- * Auto-delete images past Tuesday deadline (CRON JOB)
+ * Auto-delete images past Tuesday deadline (CRON JOB - Tuesday 23:59)
+ * 
+ * Runs when: Tuesday 23:59 (Asia/Kolkata)
+ * Deletes: Images where image_week_number < current_week - 1
+ * 
+ * For each expired image:
+ * 1. Delete file from filesystem
+ * 2. Clear database image fields
+ * 3. Log deletion clearly
  */
 exports.autoDeleteExpiredImages = async () => {
   try {
-    console.log('⏰ Running auto-delete for expired images...');
+    console.log('\n⏰ [CRON TASK] Auto-delete expired images (Tuesday 23:59)');
     
-    // Get all autos with old images
-    const autosToDelete = await db('autos')
+    const currentWeek = imageUtils.getCurrentWeekNumber();
+    const currentYear = imageUtils.getCurrentYear();
+    
+    // Calculate cutoff: images older than previous week should be deleted
+    // Example: if current_week = 10, delete images where week < 9
+    let cutoffWeek = currentWeek - 1;
+    let cutoffYear = currentYear;
+    
+    // Handle year boundary (Week 1)
+    if (currentWeek === 1) {
+      cutoffWeek = 53;
+      cutoffYear = currentYear - 1;
+    }
+    
+    console.log(`📊 Current: Week ${currentWeek}/${currentYear}, Cutoff: Week ${cutoffWeek}/${cutoffYear}`);
+    console.log(`🔍 Searching for ACTIVE autos with expired images...`);
+    
+    // ✅ CRITICAL: Only query ACTIVE autos with images
+    const autosWithImages = await db('autos')
       .where({ status: 'ACTIVE', deleted_at: null })
       .whereNotNull('image_url')
+      .whereNotNull('image_week_number')
       .select('id', 'auto_no', 'image_url', 'image_week_number', 'image_year');
     
-    let deletedCount = 0;
+    console.log(`✓ Found ${autosWithImages.length} ACTIVE autos with images`);
     
-    for (const auto of autosToDelete) {
-      if (imageUtils.shouldAutoDeleteImage(auto)) {
+    let deletedCount = 0;
+    let skipCount = 0;
+    
+    for (const auto of autosWithImages) {
+      // Determine if image is expired
+      const weekNum = auto.image_week_number;
+      const yearNum = auto.image_year;
+      let isExpired = false;
+      
+      if (yearNum < cutoffYear) {
+        // Image is from previous year
+        isExpired = true;
+      } else if (yearNum === cutoffYear && weekNum < cutoffWeek) {
+        // Image is from this year but before cutoff week
+        isExpired = true;
+      }
+      // If yearNum > cutoffYear, definitely not expired
+      // If yearNum === cutoffYear && weekNum >= cutoffWeek, not expired
+      
+      if (!isExpired) {
+        skipCount++;
+        continue;
+      }
+      
+      console.log(`  🗑️  [${auto.auto_no}] Week ${weekNum}/${yearNum} is expired, deleting...`);
+      
+      try {
+        // ✅ SAFE: Delete file only if it exists
         const imagePath = path.join(__dirname, '../../', auto.image_url);
-        await fsPromises.unlink(imagePath).catch(() => {
-          console.warn(`Could not delete expired image: ${imagePath}`);
-        });
+        if (fs.existsSync(imagePath)) {
+          await fsPromises.unlink(imagePath);
+          console.log(`    ✓ File deleted: ${auto.image_url}`);
+        } else {
+          console.warn(`    ⚠️  File not found (DB cleanup only): ${auto.image_url}`);
+        }
         
+        // ✅ RELIABLE: Clear database image fields
         await db('autos')
           .where({ id: auto.id })
           .update({
@@ -290,38 +398,27 @@ exports.autoDeleteExpiredImages = async () => {
             image_upload_date: null,
             image_week_number: null,
             image_year: null,
-            image_status: 'MISSING',
-            last_image_deleted_date: new Date(),
+            // ❌ NO image_status - section will be computed as MISSING
             updated_at: new Date(),
           });
         
-        console.log(`  ✓ Auto-deleted image for ${auto.auto_no}`);
+        console.log(`    ✓ Database cleared for auto ${auto.auto_no}`);
         deletedCount++;
+        
+      } catch (err) {
+        console.error(`    ❌ Error deleting for ${auto.auto_no}: ${err.message}`);
       }
     }
     
-    console.log(`✅ Auto-delete completed. Deleted ${deletedCount} expired images`);
-    return deletedCount;
+    console.log(`✅ Auto-delete completed:`);
+    console.log(`  ✓ Deleted: ${deletedCount}`);
+    console.log(`  ⊘ Skipped (not expired): ${skipCount}`);
+    console.log(`  📊 Total checked: ${autosWithImages.length}\n`);
+    
+    return { deletedCount, skippedCount: skipCount, totalChecked: autosWithImages.length };
+    
   } catch (error) {
     console.error('❌ Auto-delete error:', error.message);
-    throw error;
-  }
-};
-
-/**
- * Update buffer section status (CRON JOB - Sunday 00:00)
- */
-exports.updateBufferSectionStatus = async () => {
-  try {
-    console.log('📊 Updating buffer section statuses (Sunday routine)...');
-    
-    // This is more of a logical operation - statuses are computed based on week numbers
-    // Just log and verify the system is working
-    const sections = await exports.getImageSections({ admin: null }, { json: () => {} }, () => {});
-    
-    console.log(`✅ Buffer section update: MISSING=${sections.missing}, BUFFER=${sections.buffer}, UPLOADED=${sections.uploaded}`);
-  } catch (error) {
-    console.error('❌ Buffer update error:', error.message);
     throw error;
   }
 };

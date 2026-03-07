@@ -244,7 +244,11 @@ const CompanyDashboardPage = () => {
             <h1 className="text-3xl font-bold text-gray-900">{company.name}</h1>
             <p className="text-gray-600">Company Portal</p>
           </div>
-          <Button onClick={() => setShowTicketModal(true)} variant="primary">
+          <Button 
+            onClick={() => setShowTicketModal(true)} 
+            variant="primary"
+            disabled={dashboard && dashboard.company && dashboard.company.status !== 'ACTIVE'}
+          >
             + Raise New Request
           </Button>
         </div>
@@ -267,6 +271,41 @@ const CompanyDashboardPage = () => {
         ) : error ? (
           <ErrorAlert message={error} />
         ) : null}
+
+        {/* Company Status Banner for non-ACTIVE companies */}
+        {dashboard && dashboard.company && dashboard.company.status !== 'ACTIVE' && (
+          <div className={`mb-8 p-6 rounded-lg border-2 ${
+            dashboard.company.status === 'PENDING_APPROVAL' 
+              ? 'bg-blue-50 border-blue-200' 
+              : 'bg-red-50 border-red-200'
+          }`}>
+            <div className="flex items-start gap-4">
+              <div className="text-4xl">
+                {dashboard.company.status === 'PENDING_APPROVAL' ? '⏳' : '❌'}
+              </div>
+              <div className="flex-1">
+                <h3 className={`text-xl font-bold mb-2 ${
+                  dashboard.company.status === 'PENDING_APPROVAL' 
+                    ? 'text-blue-900' 
+                    : 'text-red-900'
+                }`}>
+                  {dashboard.company.status === 'PENDING_APPROVAL' 
+                    ? 'Registration Under Review' 
+                    : 'Account Status'}
+                </h3>
+                <p className={`${
+                  dashboard.company.status === 'PENDING_APPROVAL' 
+                    ? 'text-blue-800' 
+                    : 'text-red-800'
+                }`}>
+                  {dashboard.company.status === 'PENDING_APPROVAL'
+                    ? 'Your company registration is awaiting admin approval. You can view your requests below.'
+                    : 'Your account has been deactivated. Please contact the admin team. You can view your request history below.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {ticketSuccess && (
           <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
             {ticketSuccess}
@@ -275,7 +314,7 @@ const CompanyDashboardPage = () => {
 
         {/* Summary Cards */}
         {dashboard && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
             <Card>
               <div className="text-center">
                 <p className="text-gray-600 text-sm font-medium">Total Assignments</p>
@@ -299,8 +338,13 @@ const CompanyDashboardPage = () => {
 
             <Card>
               <div className="text-center">
-                <p className="text-gray-600 text-sm font-medium">Priority (2 Days)</p>
-                <p className="text-4xl font-bold text-orange-600 mt-2">{dashboard.summary.priority_count}</p>
+                <p className="text-gray-600 text-sm font-medium">Requests</p>
+                <p className="text-4xl font-bold text-orange-600 mt-2">
+                  {(dashboard.summary.pending_tickets || 0) + (dashboard.summary.rejected_tickets || 0)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {(dashboard.summary.pending_tickets || 0)} pending, {(dashboard.summary.rejected_tickets || 0)} rejected
+                </p>
               </div>
             </Card>
           </div>
@@ -431,8 +475,104 @@ const CompanyDashboardPage = () => {
           </Card>
         )}
 
-        {/* No Assignments Message */}
-        {dashboard && dashboard.active_assignments.length === 0 && dashboard.prebooked_assignments.length === 0 && (
+        {/* Rejected Tickets - Notifications */}
+        {dashboard && dashboard.rejected_tickets && dashboard.rejected_tickets.length > 0 && (
+          <Card className="mb-8 bg-red-50 border-2 border-red-200">
+            <h2 className="text-xl font-bold mb-4 flex items-center text-red-900">
+              <span className="text-2xl mr-2">❌</span>
+              <span>Request Rejected</span>
+            </h2>
+            <div className="space-y-3">
+              {dashboard.rejected_tickets.map((ticket) => (
+                <div key={ticket.id} className="p-4 border rounded-lg bg-white border-red-200">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-red-900 mb-2">Rejection Notice</h3>
+                      <div className="grid grid-cols-3 gap-4 mb-3">
+                        <div>
+                          <p className="text-sm text-gray-600">Autos Requested</p>
+                          <p className="font-semibold">{ticket.autos_required}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">Duration</p>
+                          <p className="font-semibold">{ticket.days_required} days</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">Start Date</p>
+                          <p className="font-semibold">{formatDate(ticket.start_date)}</p>
+                        </div>
+                      </div>
+                      {ticket.rejected_reason && (
+                        <div className="mb-3 p-3 bg-red-50 rounded border border-red-200">
+                          <p className="text-sm font-medium text-red-900">Reason for Rejection:</p>
+                          <p className="text-red-800">{ticket.rejected_reason}</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500">Rejected on {formatDate(ticket.updated_at)}</p>
+                    </div>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await api.patch(`/company-tickets/${ticket.id}/dismiss`, {
+                            company_id: company.id
+                          });
+                          // Refresh dashboard
+                          const response = await api.get(`/company-portal/${company.id}/dashboard`);
+                          setDashboard(response.data);
+                        } catch (err) {
+                          alert('Failed to dismiss notification: ' + (err.response?.data?.error || err.message));
+                        }
+                      }}
+                      className="ml-4 bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm"
+                    >
+                      ✕ Close
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Approved Tickets - Assignments Available */}
+        {dashboard && dashboard.approved_tickets && dashboard.approved_tickets.length > 0 && (
+          <Card className="mb-8 bg-green-50 border-2 border-green-200">
+            <h2 className="text-xl font-bold mb-4 flex items-center text-green-900">
+              <span className="text-2xl mr-2">✅</span>
+              <span>Approved Requests</span>
+            </h2>
+            <div className="space-y-3">
+              {dashboard.approved_tickets.map((ticket) => (
+                <div key={ticket.id} className="p-4 border rounded-lg bg-white border-green-200">
+                  <h3 className="font-semibold text-green-900 mb-2">Request Approved</h3>
+                  <div className="grid grid-cols-4 gap-4 mb-3 text-sm">
+                    <div>
+                      <p className="text-gray-600 font-medium">Autos Approved</p>
+                      <p className="text-lg font-bold text-green-600">{ticket.autos_required}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 font-medium">Duration</p>
+                      <p className="text-lg font-bold">{ticket.days_required} days</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 font-medium">Start Date</p>
+                      <p className="text-lg font-bold">{formatDate(ticket.start_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 font-medium">Area</p>
+                      <p className="text-lg font-bold">{ticket.area_name || 'Any Area'}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Approved on {formatDate(ticket.updated_at)}</p>
+                  <p className="text-xs text-green-600 mt-1">✓ Assignments will be visible in the Active Assignments section above</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* No Assignments Message - Only for ACTIVE companies */}
+        {dashboard && dashboard.company && dashboard.company.status === 'ACTIVE' && dashboard.active_assignments.length === 0 && dashboard.prebooked_assignments.length === 0 && (
           <Card>
             <div className="text-center py-12">
               <p className="text-gray-600 text-lg mb-4">No active assignments yet</p>

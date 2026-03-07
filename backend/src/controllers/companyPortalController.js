@@ -146,6 +146,7 @@ exports.getCompanyDashboard = async (req, res, next) => {
 
     const { company_id } = req.params;
 
+    // Step 1: Always fetch company record first
     const company = await Company.findById(company_id);
     if (!company) {
       return res.status(404).json({ error: 'Company not found' });
@@ -153,37 +154,120 @@ exports.getCompanyDashboard = async (req, res, next) => {
 
     console.log('[DASHBOARD] Company status:', { id: company_id, status: company.company_status });
 
-    // For non-ACTIVE companies, return limited data with status info
-    // Frontend will handle showing appropriate message based on status
-    if (company.company_status !== 'ACTIVE') {
-      console.log('[DASHBOARD] Company not active, returning status info');
-      return res.json({
-        summary: {
-          total_assignments: 0,
-          active_assignments: 0,
-          prebooked_assignments: 0,
-          completed_assignments: 0,
-          total_days_assigned: 0,
-          autos_assigned: 0,
-          priority_count: 0,
-        },
-        active_assignments: [],
-        prebooked_assignments: [],
-        completed_assignments: [],
-        pending_tickets: [],
-        company_status: company.company_status,
-        message: company.company_status === 'PENDING_APPROVAL' 
-          ? 'Please wait for admin to approve your registration. Check back soon!'
-          : 'Your account has been deactivated. Please contact admin.',
-      });
-    }
+    // Step 2: Always fetch company tickets (excluding dismissed rejected ones)
+    const allTickets = await CompanyTicket.findByCompanyId(company_id, { includeDismissed: false });
+    const pendingTickets = allTickets.filter(t => t.ticket_status === 'PENDING');
+    const rejectedTickets = allTickets.filter(t => t.ticket_status === 'REJECTED' && !t.dismissed_by_company);
+    const approvedTickets = allTickets.filter(t => t.ticket_status === 'APPROVED');
 
-    // Get assignments
+    console.log(`[DASHBOARD] Tickets for ${company_id}: pending=${pendingTickets.length}, rejected=${rejectedTickets.length}, approved=${approvedTickets.length}`);
+
+    // Step 3: Calculate dashboard counts from approved tickets
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Calculate ticket-based statistics
+    const activeTickets = approvedTickets.filter(ticket => {
+      const startDate = new Date(ticket.start_date);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + ticket.days_required - 1);
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Active if today falls within start and end date
+      return startDate <= today && today <= endDate;
+    });
+
+    const prebookedTickets = approvedTickets.filter(ticket => {
+      const startDate = new Date(ticket.start_date);
+      startDate.setHours(0, 0, 0, 0);
+      // Pre-booked if start date is in the future
+      return startDate > today;
+    });
+
+    const priorityTickets = approvedTickets.filter(ticket => {
+      return ticket.days_required <= 2;
+    });
+
+    // Step 4: Enrich approved tickets with assigned autos
+    const enrichedApprovedTickets = await Promise.all(
+      approvedTickets.map(async (ticket) => {
+        try {
+          // Find all assignments for this company that overlap with the ticket date range
+          const ticketStart = new Date(ticket.start_date);
+          ticketStart.setHours(0, 0, 0, 0);
+          const ticketEnd = new Date(ticketStart);
+          ticketEnd.setDate(ticketEnd.getDate() + ticket.days_required - 1);
+          ticketEnd.setHours(23, 59, 59, 999);
+
+          // Get all assignments for this company
+          const allAssignments = await Assignment.findByCompanyId(company_id);
+          
+          // Filter assignments that overlap with this ticket's date range
+          const overlappingAssignments = allAssignments.filter(assignment => {
+            const assignStart = new Date(assignment.start_date);
+            assignStart.setHours(0, 0, 0, 0);
+            const assignEnd = new Date(assignment.end_date);
+            assignEnd.setHours(23, 59, 59, 999);
+            
+            // Check if assignment overlaps with ticket date range
+            return assignStart <= ticketEnd && assignEnd >= ticketStart;
+          });
+
+          // Enrich each assignment with auto details
+          const assignedAutos = await Promise.all(
+            overlappingAssignments.map(async (assignment) => {
+              try {
+                const auto = await Auto.findById(assignment.auto_id);
+                if (!auto) return null;
+
+                const Area = require('../models/Area');
+                const area = auto.area_id ? await Area.findById(auto.area_id) : null;
+
+                return {
+                  auto_no: auto.auto_no || 'Unknown',
+                  owner_name: auto.owner_name || 'Unknown',
+                  area_name: area?.name || auto.area_name || 'Unknown',
+                  start_date: assignment.start_date,
+                  end_date: assignment.end_date,
+                  assignment_status: assignment.status,
+                };
+              } catch (err) {
+                console.error(`[DASHBOARD] Error enriching auto for assignment:`, err);
+                return null;
+              }
+            })
+          );
+
+          return {
+            ...ticket,
+            assigned_autos: assignedAutos.filter(a => a !== null),
+          };
+        } catch (err) {
+          console.error(`[DASHBOARD] Error enriching ticket ${ticket.id}:`, err);
+          return {
+            ...ticket,
+            assigned_autos: [],
+          };
+        }
+      })
+    );
+
+    // Step 5: Always fetch assignments (regardless of company status)
+    // Companies should see their approved/assigned autos even if not yet ACTIVE
+    let activeAssignments = [];
+    let prebookedAssignments = [];
+    let completedAssignments = [];
+    let priorityAssignments = [];
+    let enrichedActive = [];
+    let enrichedPrebooked = [];
+    let enrichedCompleted = [];
+
+    // Fetch assignments for this company
     const assignments = await Assignment.findByCompanyId(company_id);
     
     // Filter and update statuses if needed - mark COMPLETED if end_date has passed
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // (reuse today variable declared in Step 3)
     
     // Recalculate display status for each assignment based on TODAY
     for (const assignment of assignments) {
@@ -197,9 +281,9 @@ exports.getCompanyDashboard = async (req, res, next) => {
     }
     
     // Filter only ACTIVE and PREBOOKED (not COMPLETED)
-    const activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
-    const prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
-    const completedAssignments = assignments.filter(a => a.status === 'COMPLETED');
+    activeAssignments = assignments.filter(a => a.status === 'ACTIVE');
+    prebookedAssignments = assignments.filter(a => a.status === 'PREBOOKED');
+    completedAssignments = assignments.filter(a => a.status === 'COMPLETED');
 
     // Enrich ALL assignments with auto details (ACTIVE, PREBOOKED, and COMPLETED)
     const enrichAssignments = async (assignmentList) => {
@@ -236,21 +320,18 @@ exports.getCompanyDashboard = async (req, res, next) => {
     };
 
     // Enrich active assignments with auto details
-    const enrichedActive = await enrichAssignments(activeAssignments);
+    enrichedActive = await enrichAssignments(activeAssignments);
     
     // Enrich prebooked assignments with auto details
-    const enrichedPrebooked = await enrichAssignments(prebookedAssignments);
+    enrichedPrebooked = await enrichAssignments(prebookedAssignments);
     
     // Enrich completed assignments with auto details
-    const enrichedCompleted = await enrichAssignments(completedAssignments);
-
-    // Get tickets for this company
-    const tickets = await CompanyTicket.findByCompanyId(company_id);
-    const pendingTickets = tickets.filter(t => t.ticket_status === 'PENDING');
+    enrichedCompleted = await enrichAssignments(completedAssignments);
 
     // Get priority assignments (2 days or less) from enriched data
-    const priorityAssignments = enrichedActive.filter(a => a.days_remaining >= 0 && a.days_remaining <= 2);
+    priorityAssignments = enrichedActive.filter(a => a.days_remaining >= 0 && a.days_remaining <= 2);
 
+    // Step 6: Return unified dashboard response object
     res.json({
       company: {
         id: company.id,
@@ -265,13 +346,43 @@ exports.getCompanyDashboard = async (req, res, next) => {
         completed_assignments: enrichedCompleted.length,
         priority_count: priorityAssignments.length,
         pending_tickets: pendingTickets.length,
+        rejected_tickets: rejectedTickets.length,
       },
       active_assignments: enrichedActive,
       prebooked_assignments: enrichedPrebooked,
       completed_assignments: enrichedCompleted,
       priority_assignments: priorityAssignments,
-      tickets: tickets,
+      // Include all ticket states in response
+      tickets: allTickets,
       pending_tickets: pendingTickets,
+      rejected_tickets: rejectedTickets,
+      approved_tickets: enrichedApprovedTickets,
+      // Notifications for frontend display
+      notifications: {
+        pending: pendingTickets.map(t => ({
+          id: t.id,
+          type: 'PENDING_TICKET',
+          title: 'Request Pending',
+          message: `Your request for ${t.autos_required} auto(s) is awaiting admin approval`,
+          details: {
+            autos_required: t.autos_required,
+            days_required: t.days_required,
+            area_name: t.area_name,
+            start_date: t.start_date,
+          }
+        })),
+        rejected: rejectedTickets.map(t => ({
+          id: t.id,
+          type: 'REJECTED_TICKET',
+          title: 'Request Rejected',
+          message: t.rejected_reason || 'Your request has been rejected',
+          details: {
+            autos_required: t.autos_required,
+            days_required: t.days_required,
+            rejected_reason: t.rejected_reason,
+          }
+        }))
+      }
     });
   } catch (error) {
     next(error);

@@ -9,6 +9,7 @@ import CompanyLoginPage from './pages/CompanyLoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import CompanyDashboardPage from './pages/CompanyDashboardPage';
+import CompanyPaymentDetailsPage from './pages/CompanyPaymentDetailsPage';
 import AutoDetailPage from './pages/AutoDetailPage';
 import './App.css';
 
@@ -52,6 +53,14 @@ function AppContent() {
         element={
           <CompanyProtectedRoute>
             <CompanyDashboardPage />
+          </CompanyProtectedRoute>
+        }
+      />
+      <Route
+        path="/payment-details"
+        element={
+          <CompanyProtectedRoute>
+            <CompanyPaymentDetailsPage />
           </CompanyProtectedRoute>
         }
       />

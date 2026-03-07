@@ -4,23 +4,26 @@ Complete admin panel for auto/vehicle management with company assignments, role-
 
 ## 🚀 Quick Start (5 minutes)
 
-```powershell
-# 1. Run automated setup (Windows)
-.\setup-mongodb.bat
+**For complete documentation guide:** See [docs/DOCS_GUIDE.md](docs/DOCS_GUIDE.md)
 
-# 2. In one terminal (Backend)
+```bash
+# 1. Setup PostgreSQL (see docs/setup/POSTGRESQL_SETUP.md)
+
+# 2. In one terminal (Backend - port 5001)
 cd backend
+npm install
 npm run dev
 
-# 3. In another terminal (Frontend)
+# 3. In another terminal (Frontend - port 3000)
 cd frontend
+npm install
 npm run dev
 
 # 4. Open http://localhost:3000
 # Login: pragna@company.com / Test1234
 ```
 
-**For detailed setup:** See [MONGODB_SETUP_GUIDE.md](MONGODB_SETUP_GUIDE.md)
+**For detailed setup:** See [docs/setup/POSTGRESQL_SETUP.md](docs/setup/POSTGRESQL_SETUP.md)
 
 ## Features
 
@@ -44,46 +47,45 @@ npm run dev
 
 **Backend:**
 - Node.js/Express
-- **MongoDB** (migrated from PostgreSQL)
-- Mongoose (ODM)
+- **PostgreSQL** (with Knex.js migrations)
 - JWT (authentication)
 - bcrypt (password hashing)
+- Nodemailer (email system)
+- Passport (OAuth)
 
 ## Prerequisites
 
 - Node.js 16+
-- **MongoDB 4.4+** ([Download](https://www.mongodb.com/try/download/community) or use [MongoDB Atlas](https://www.mongodb.com/cloud/atlas))
+- **PostgreSQL 12+** ([Download](https://www.postgresql.org/download/))
 - npm or yarn
 
 ## Setup Instructions
 
-### 1. Install MongoDB
+### 1. Install PostgreSQL
+
+For detailed instructions, see [docs/setup/POSTGRESQL_SETUP.md](docs/setup/POSTGRESQL_SETUP.md)
 
 **Windows:**
-```powershell
-# Download from https://www.mongodb.com/try/download/community
-# Or use Chocolatey:
-choco install mongodb-community
-
-# Start service:
-net start MongoDB
-```
+- Download from https://www.postgresql.org/download/windows/
+- Run installer and follow setup wizard
+- Default port: 5432
 
 **Mac:**
 ```bash
-brew tap mongodb/brew
-brew install mongodb-community
-brew services start mongodb-community
+# Using Homebrew
+brew install postgresql@15
+brew services start postgresql@15
 ```
 
-**Cloud Option (MongoDB Atlas):**
-- No local installation needed
-- Free tier available
-- Get connection string from https://www.mongodb.com/cloud/atlas
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install postgresql postgresql-contrib
+sudo systemctl start postgresql
+```
 
 ### 2. Backend Setup
 
-```powershell
+```bash
 cd backend
 
 # Install dependencies
@@ -92,8 +94,16 @@ npm install
 # Copy environment file
 cp .env.example .env
 
-# Edit .env - Update MONGODB_URI if using MongoDB Atlas
-# Default: mongodb://localhost:27017/admin_panel_db
+# Edit .env with your PostgreSQL credentials
+# Example:
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_USER=postgres
+# DB_PASSWORD=your_password
+# DB_NAME=admin_panel_db
+
+# Run migrations
+npm run migrate
 
 # Seed initial data
 npm run seed
@@ -102,11 +112,11 @@ npm run seed
 npm run dev
 ```
 
-Backend runs on `http://localhost:5000`
+Backend runs on `http://localhost:5001`
 
 ### 3. Frontend Setup
 
-```powershell
+```bash
 cd frontend
 
 # Install dependencies
@@ -120,6 +130,34 @@ npm run dev
 ```
 
 Frontend runs on `http://localhost:3000`
+
+### 4. Company Portal Setup
+
+```bash
+cd company-portal
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+Company Portal runs on `http://localhost:3001`
+
+### 5. Auto Portal Setup
+
+```bash
+cd auto-portal
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+Auto Portal runs on `http://localhost:3002`
 
 ## Default Credentials
 

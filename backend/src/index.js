@@ -21,6 +21,7 @@ const advertisementRoutes = require('./routes/advertisementRoutes');
 const autoMonthlyPaymentRoutes = require('./routes/autoMonthlyPaymentRoutes');
 const companyAuthRoutes = require('./routes/companyAuthRoutes');
 const companyPortalRoutes = require('./routes/companyPortalRoutes');
+const companyRequestRoutes = require('./routes/companyRequestRoutes');
 const companyTicketRoutes = require('./routes/companyTicketRoutes');
 const autoImageRoutes = require('./routes/autoImageRoutes');
 const autoAuthRoutes = require('./routes/autoAuthRoutes');
@@ -39,7 +40,12 @@ EmailUtils.initializeTransporter();
 require('./config/passport');
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -54,6 +60,14 @@ console.log(`[STATIC-FILES] Static middleware registered successfully`);
 
 // Initialize Passport
 app.use(passport.initialize());
+
+// Add explicit OPTIONS handler for all routes
+app.options('*', cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+}));
 
 // Serve company portal frontend (must be BEFORE API routes so /api routes take precedence)
 const companyPortalPath = path.join(__dirname, '../../company-portal/dist');
@@ -89,6 +103,8 @@ app.use('/api/auto-monthly-payments', autoMonthlyPaymentRoutes);
 // Company Routes
 app.use('/api/company-auth', companyAuthRoutes);
 app.use('/api/company-portal', companyPortalRoutes);
+// DEPRECATED: company-requests routes disabled - all functionality moved to company-tickets
+// app.use('/api/company-requests', companyRequestRoutes);
 app.use('/api/company-tickets', companyTicketRoutes);
 
 // Auto Portal Routes

@@ -629,14 +629,20 @@ const AutosPage = () => {
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + parseInt(days));
 
-      // Call bulk update endpoint
-      await assignmentService.bulkUpdate({
+      const bulkUpdatePayload = {
         auto_ids: Array.from(selectedAutos),
         company_id: companyId,
         days: parseInt(days),
         start_date: startDate,
-      });
+        end_date: endDate.toISOString().split('T')[0],
+      };
 
+      console.log('[BULK-EDIT] Sending bulk update payload:', bulkUpdatePayload);
+
+      // Call bulk update endpoint
+      await assignmentService.bulkUpdate(bulkUpdatePayload);
+
+      console.log('[BULK-EDIT] ✓ Bulk edit successful');
       setSuccess('Autos updated successfully');
       setSelectedAutos(new Set());
       setShowBulkEditModal(false);
@@ -649,7 +655,10 @@ const AutosPage = () => {
 
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to update autos');
+      console.error('[BULK-EDIT] ✗ Error:', err);
+      console.error('[BULK-EDIT] Response data:', err.response?.data);
+      console.error('[BULK-EDIT] Response status:', err.response?.status);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to update autos');
     } finally {
       setLoading(false);
     }

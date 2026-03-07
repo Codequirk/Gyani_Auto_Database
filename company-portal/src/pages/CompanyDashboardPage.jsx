@@ -32,6 +32,7 @@ const CompanyDashboardPage = () => {
   const [selectedAreaPinCode, setSelectedAreaPinCode] = useState('');
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [selectedAreaForCalendar, setSelectedAreaForCalendar] = useState('');
+  const [dismissingTicket, setDismissingTicket] = useState(null);
 
   // Fetch areas when either modal is shown
   useEffect(() => {
@@ -114,9 +115,14 @@ const CompanyDashboardPage = () => {
       try {
         console.log('[DASHBOARD] Fetching dashboard for company:', company.id);
         const response = await api.get(`/company-portal/${company.id}/dashboard`);
+        console.log('[DASHBOARD] Full API Response:', response.data);
         console.log('[DASHBOARD] Response received:', {
           company_status: response.data.company_status,
           summary: response.data.summary,
+          pending_tickets: response.data.pending_tickets?.length || 0,
+          rejected_tickets: response.data.rejected_tickets?.length || 0,
+          approved_tickets: response.data.approved_tickets?.length || 0,
+          active_assignments: response.data.active_assignments?.length || 0,
         });
         setDashboard(response.data);
         setError('');
@@ -146,6 +152,27 @@ const CompanyDashboardPage = () => {
 
     fetchDashboard();
   }, [isAuthenticated, company, navigate]);
+
+  const handleDismissRejectedTicket = async (ticketId) => {
+    try {
+      setDismissingTicket(ticketId);
+      console.log('[DASHBOARD] Dismissing rejected ticket:', ticketId);
+      
+      await api.patch(`/company-tickets/${ticketId}/dismiss`, {
+        company_id: company.id,
+      });
+
+      // Re-fetch dashboard to remove dismissed ticket
+      const response = await api.get(`/company-portal/${company.id}/dashboard`);
+      console.log('[DASHBOARD] Updated dashboard after dismiss:', response.data);
+      setDashboard(response.data);
+    } catch (err) {
+      console.error('[DASHBOARD] Error dismissing ticket:', err);
+      alert('Failed to close request. Please try again.');
+    } finally {
+      setDismissingTicket(null);
+    }
+  };
 
   const handleCreateTicket = async (e) => {
     e.preventDefault();
@@ -180,6 +207,7 @@ const CompanyDashboardPage = () => {
 
       // Refetch dashboard
       const response = await api.get(`/company-portal/${company.id}/dashboard`);
+      console.log('[DASHBOARD] Updated dashboard after ticket creation:', response.data);
       setDashboard(response.data);
 
       setTimeout(() => setTicketSuccess(''), 3000);
@@ -478,6 +506,58 @@ const CompanyDashboardPage = () => {
             </div>
           </Card>
         )}
+
+        {/* Rejected Tickets */}
+        {dashboard && (dashboard.rejected_tickets?.length ?? 0) > 0 && (
+          <Card className="mb-8 bg-red-50 border-2 border-red-200">
+            <h2 className="text-xl font-bold mb-4 flex items-center">
+              <Badge className="bg-red-600 text-white">REJECTED</Badge>
+              <span className="ml-2">Rejected Requests</span>
+            </h2>
+            <div className="space-y-4">
+              {dashboard.rejected_tickets.map((ticket) => (
+                <div key={ticket.id} className="p-4 border border-red-300 rounded-lg bg-white">
+                  <div className="grid grid-cols-4 gap-4 mb-3">
+                    <div>
+                      <p className="text-sm text-gray-600">Autos Required</p>
+                      <p className="font-semibold">{ticket.autos_required}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Days</p>
+                      <p className="font-semibold">{ticket.days_required}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Area</p>
+                      <p className="font-semibold">{ticket.area_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Start Date</p>
+                      <p className="font-semibold">{formatDate(ticket.start_date)}</p>
+                    </div>
+                  </div>
+                  {ticket.rejected_reason && (
+                    <div className="mt-3 p-2 bg-red-100 border border-red-300 rounded text-sm text-red-800">
+                      <p className="font-medium">Rejection Reason:</p>
+                      <p>{ticket.rejected_reason}</p>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center mt-3">
+                    <p className="text-xs text-gray-500">Submitted on {formatDate(ticket.created_at)}</p>
+                    <Button
+                      onClick={() => handleDismissRejectedTicket(ticket.id)}
+                      disabled={dismissingTicket === ticket.id}
+                      className="px-3 py-1 bg-gray-300 hover:bg-gray-400 text-gray-800 text-sm rounded"
+                    >
+                      {dismissingTicket === ticket.id ? '⏳ Closing...' : '✕ Close'}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+
 
         {/* No Assignments Message */}
         {dashboard && (dashboard.active_assignments?.length ?? 0) === 0 && (dashboard.prebooked_assignments?.length ?? 0) === 0 && (

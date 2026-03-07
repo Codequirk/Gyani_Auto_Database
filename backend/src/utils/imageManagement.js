@@ -1,9 +1,18 @@
 /**
  * Image Management Utilities
- * Handles week-based image lifecycle management
+ * 
+ * Handles week-based image lifecycle computation
+ * 
+ * KEY PRINCIPLE: Image lifecycle is determined ONLY by:
+ * - image_url
+ * - image_week_number
+ * - image_year
+ * 
+ * No manual section status is stored in the database.
+ * Sections are computed dynamically based on week numbers.
  */
 
-const { getWeek, getYear, isThursday, isSunday, isMonday, isTuesday, getWeeksInYear } = require('date-fns');
+const { getWeek, getYear } = require('date-fns');
 
 /**
  * Get current ISO week number (1-53)
@@ -20,39 +29,17 @@ function getCurrentYear() {
 }
 
 /**
- * Get week number for a specific date
- */
-function getWeekNumber(date) {
-  return getWeek(new Date(date));
-}
-
-/**
- * Get year for a specific date
- */
-function getYearForDate(date) {
-  return getYear(new Date(date));
-}
-
-/**
- * Check if image is from current week
- */
-function isCurrentWeek(imageWeekNumber, imageYear) {
-  const now = new Date();
-  const currentWeek = getCurrentWeekNumber();
-  const currentYear = getCurrentYear();
-  
-  return imageWeekNumber === currentWeek && imageYear === currentYear;
-}
-
-/**
  * Check if image is from previous week
+ * 
+ * Handles year boundary correctly:
+ * - If current week = 1, previous week = 53 of last year
+ * - Otherwise, previous week = current_week - 1 of current year
  */
 function isPreviousWeek(imageWeekNumber, imageYear) {
-  const now = new Date();
   const currentWeek = getCurrentWeekNumber();
   const currentYear = getCurrentYear();
   
-  // Previous week
+  // Year boundary: week 1 comes after week 53
   if (currentWeek === 1) {
     return imageWeekNumber === 53 && imageYear === currentYear - 1;
   }
@@ -61,49 +48,10 @@ function isPreviousWeek(imageWeekNumber, imageYear) {
 }
 
 /**
- * Check if today is in the buffer window (Sunday 00:00 - Tuesday 23:59)
- */
-function isInBufferWindow() {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, 2 = Tuesday, ...
-  
-  return dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2; // Sunday, Monday, Tuesday
-}
-
-/**
- * Check if today is past Tuesday 11:59 PM
- */
-function isPastTuesdayDeadline() {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  
-  // If it's Wednesday or later
-  if (dayOfWeek >= 3) return true;
-  
-  // If it's Tuesday, check if it's past 23:59
-  if (dayOfWeek === 2) {
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const second = now.getSeconds();
-    
-    // Check if past 23:59:00
-    if (hour > 23) return true;
-    if (hour === 23 && minute > 59) return true;
-    if (hour === 23 && minute === 59 && second > 0) return true;
-  }
-  
-  return false;
-}
-
-/**
- * Determine which section an auto should be in
+ * DEPRECATED: This function is no longer used
+ * Sections are now computed directly in getImageSections() with clear week logic
  * 
- * Section 1 (MISSING): No image, or old image past deadline
- * Section 2 (BUFFER): Previous week image, within buffer window
- * Section 3 (UPLOADED): Current week image
- * 
- * NOTE: This function assumes the auto has already been filtered for active assignments.
- * It should NOT check auto.status column as it may be outdated.
+ * Kept for reference only - remove in future cleanup
  */
 function getAutoImageSection(auto) {
   // No image at all
@@ -121,70 +69,18 @@ function getAutoImageSection(auto) {
     return 'UPLOADED';
   }
   
-  // Previous week image + in buffer window (Sun-Tue)
-  if (isPreviousWeek(autoImageWeek, autoImageYear) && isInBufferWindow()) {
+  // Previous week image
+  if (isPreviousWeek(autoImageWeek, autoImageYear)) {
     return 'BUFFER';
   }
   
-  // Old image past Tuesday deadline
-  if (isPreviousWeek(autoImageWeek, autoImageYear) && isPastTuesdayDeadline()) {
-    return 'MISSING'; // Image should be deleted
-  }
-  
-  // Any other old image = MISSING
+  // Any other old image
   return 'MISSING';
-}
-
-/**
- * Check if auto image should be auto-deleted (Tuesday 23:59 deadline)
- */
-function shouldAutoDeleteImage(auto) {
-  // Must have an image
-  if (!auto.image_url || !auto.image_week_number) {
-    return false;
-  }
-  
-  const currentWeek = getCurrentWeekNumber();
-  const currentYear = getCurrentYear();
-  
-  // Is from previous week
-  const isPrev = isPreviousWeek(auto.image_week_number, auto.image_year);
-  
-  // Is past Tuesday deadline
-  const pastDeadline = isPastTuesdayDeadline();
-  
-  return isPrev && pastDeadline;
-}
-
-/**
- * Check if image should be deleted due to assignment completion
- * (different company in next assignment or no next assignment)
- */
-function shouldDeleteImageOnAssignmentEnd(currentCompanyId, nextCompanyId) {
-  // If no next assignment, delete image
-  if (!nextCompanyId) {
-    return true;
-  }
-  
-  // If next company is different, delete image
-  if (nextCompanyId !== currentCompanyId) {
-    return true;
-  }
-  
-  // Same company, keep image
-  return false;
 }
 
 module.exports = {
   getCurrentWeekNumber,
   getCurrentYear,
-  getWeekNumber,
-  getYearForDate,
-  isCurrentWeek,
   isPreviousWeek,
-  isInBufferWindow,
-  isPastTuesdayDeadline,
-  getAutoImageSection,
-  shouldAutoDeleteImage,
-  shouldDeleteImageOnAssignmentEnd,
+  getAutoImageSection, // Deprecated, kept for compatibility
 };

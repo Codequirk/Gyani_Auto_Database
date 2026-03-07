@@ -79,6 +79,30 @@ const AdminsPage = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Add Admin Modal State
+  const [showAddAdminModal, setShowAddAdminModal] = useState(false);
+  const [addAdminData, setAddAdminData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'ADMIN',
+  });
+  const [addAdminLoading, setAddAdminLoading] = useState(false);
+
+  // Edit Admin Modal State
+  const [showEditAdminModal, setShowEditAdminModal] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState(null);
+  const [editAdminData, setEditAdminData] = useState({
+    name: '',
+    email: '',
+    role: 'ADMIN',
+  });
+  const [editAdminLoading, setEditAdminLoading] = useState(false);
+
+  // Delete Confirmation State
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const {
     data: admins,
     loading: adminsLoading,
@@ -91,22 +115,97 @@ const AdminsPage = () => {
       admin.email?.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
-  const handleDelete = async (adminId) => {
-    if (!window.confirm('Are you sure you want to delete this admin?')) {
+  // Add Admin Handler
+  const handleAddAdmin = async (e) => {
+    e.preventDefault();
+    
+    if (!addAdminData.name || !addAdminData.email || !addAdminData.password) {
+      setError('Name, email, and password are required');
       return;
     }
 
-    setLoading(true);
+    setAddAdminLoading(true);
+    setError('');
+    try {
+      await adminService.create({
+        name: addAdminData.name,
+        email: addAdminData.email,
+        password: addAdminData.password,
+        role: addAdminData.role,
+      });
+
+      setSuccess('Admin created successfully');
+      setShowAddAdminModal(false);
+      setAddAdminData({ name: '', email: '', password: '', role: 'ADMIN' });
+      refetchAdmins();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to create admin');
+    } finally {
+      setAddAdminLoading(false);
+    }
+  };
+
+  // Open Edit Admin Modal
+  const openEditAdminModal = (admin) => {
+    setEditingAdmin(admin);
+    setEditAdminData({
+      name: admin.name,
+      email: admin.email,
+      role: admin.role || 'ADMIN',
+    });
+    setShowEditAdminModal(true);
+  };
+
+  // Edit Admin Handler
+  const handleEditAdmin = async (e) => {
+    e.preventDefault();
+
+    if (!editAdminData.name || !editAdminData.email) {
+      setError('Name and email are required');
+      return;
+    }
+
+    setEditAdminLoading(true);
+    setError('');
+    try {
+      await adminService.update(editingAdmin.id, {
+        name: editAdminData.name,
+        email: editAdminData.email,
+        role: editAdminData.role,
+      });
+
+      setSuccess('Admin updated successfully');
+      setShowEditAdminModal(false);
+      setEditingAdmin(null);
+      refetchAdmins();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update admin');
+    } finally {
+      setEditAdminLoading(false);
+    }
+  };
+
+  // Confirm Delete Handler
+  const confirmDeleteAdmin = (admin) => {
+    setDeleteConfirmation(admin);
+  };
+
+  // Delete Admin Handler
+  const handleDelete = async (adminId) => {
+    setDeleteLoading(true);
     setError('');
     try {
       await adminService.delete(adminId);
       setSuccess('Admin deleted successfully');
+      setDeleteConfirmation(null);
       refetchAdmins();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to delete admin');
     } finally {
-      setLoading(false);
+      setDeleteLoading(false);
     }
   };
 
@@ -119,7 +218,7 @@ const AdminsPage = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admins Management</h1>
-          <Button onClick={() => alert('Add admin functionality coming soon')}>
+          <Button onClick={() => setShowAddAdminModal(true)}>
             + Add Admin
           </Button>
         </div>
@@ -185,9 +284,9 @@ const AdminsPage = () => {
                       </td>
                       <td className="px-6 py-3 text-sm">
                         <ActionMenu
-                          onEdit={() => alert('Edit admin functionality coming soon')}
-                          onDelete={() => handleDelete(admin.id)}
-                          isLoading={loading}
+                          onEdit={() => openEditAdminModal(admin)}
+                          onDelete={() => confirmDeleteAdmin(admin)}
+                          isLoading={deleteLoading}
                         />
                       </td>
                     </tr>
@@ -198,6 +297,199 @@ const AdminsPage = () => {
           )}
         </Card>
       </div>
+
+      {/* Add Admin Modal */}
+      {showAddAdminModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Add New Admin</h2>
+
+              <form onSubmit={handleAddAdmin}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={addAdminData.name}
+                    onChange={(e) => setAddAdminData({ ...addAdminData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Admin name"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={addAdminData.email}
+                    onChange={(e) => setAddAdminData({ ...addAdminData, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="admin@example.com"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Password *
+                  </label>
+                  <input
+                    type="password"
+                    value={addAdminData.password}
+                    onChange={(e) => setAddAdminData({ ...addAdminData, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Password"
+                  />
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Role
+                  </label>
+                  <select
+                    value={addAdminData.role}
+                    onChange={(e) => setAddAdminData({ ...addAdminData, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddAdminModal(false);
+                      setAddAdminData({ name: '', email: '', password: '', role: 'ADMIN' });
+                      setError('');
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addAdminLoading}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {addAdminLoading ? 'Creating...' : 'Create Admin'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit Admin Modal */}
+      {showEditAdminModal && editingAdmin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Admin</h2>
+
+              <form onSubmit={handleEditAdmin}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={editAdminData.name}
+                    onChange={(e) => setEditAdminData({ ...editAdminData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Admin name"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={editAdminData.email}
+                    onChange={(e) => setEditAdminData({ ...editAdminData, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="admin@example.com"
+                  />
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Role
+                  </label>
+                  <select
+                    value={editAdminData.role}
+                    onChange={(e) => setEditAdminData({ ...editAdminData, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditAdminModal(false);
+                      setEditingAdmin(null);
+                      setError('');
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editAdminLoading}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {editAdminLoading ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Delete Admin</h2>
+              <p className="text-gray-700 mb-6">
+                Are you sure you want to delete <strong>{deleteConfirmation.name}</strong>?<br />
+                This action cannot be undone.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmation(null)}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDelete(deleteConfirmation.id)}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteLoading ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

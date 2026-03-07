@@ -41,6 +41,15 @@ export default function PaymentAdminPage() {
   const [debouncedAutoSearch, setDebouncedAutoSearch] = useState('');
   const menuRef = useRef(null);
 
+  // Company Payment Edit & Delete State
+  const [showCompanyPaymentEditModal, setShowCompanyPaymentEditModal] = useState(false);
+  const [editingCompanyPayment, setEditingCompanyPayment] = useState(null);
+  const [editCompanyPaymentData, setEditCompanyPaymentData] = useState({});
+  const [companyPaymentEditLoading, setCompanyPaymentEditLoading] = useState(false);
+  const [deleteCompanyPaymentConfirm, setDeleteCompanyPaymentConfirm] = useState(null);
+  const [companyPaymentMenuAnchor, setCompanyPaymentMenuAnchor] = useState(null);
+  const [selectedCompanyPayment, setSelectedCompanyPayment] = useState(null);
+
   useEffect(() => {
     fetchPaymentData();
   }, []);
@@ -98,6 +107,39 @@ export default function PaymentAdminPage() {
     }
   }, [openMenuId]);
 
+  // Close company payment menu when clicking outside
+  useEffect(() => {
+    const handleClickOutsideCompanyPaymentMenu = (event) => {
+      const menuButton = event.target.closest('button[title="Actions"]');
+      const menuDiv = event.target.closest('[role="menu"]');
+      
+      if (!menuButton && !menuDiv && companyPaymentMenuAnchor) {
+        setCompanyPaymentMenuAnchor(null);
+        setSelectedCompanyPayment(null);
+      }
+    };
+
+    if (companyPaymentMenuAnchor) {
+      document.addEventListener('mousedown', handleClickOutsideCompanyPaymentMenu);
+      return () => document.removeEventListener('mousedown', handleClickOutsideCompanyPaymentMenu);
+    }
+  }, [companyPaymentMenuAnchor]);
+
+  // Sync selectedCompany with fresh paymentData whenever it changes
+  // This ensures edited/deleted payments are immediately reflected in the displayed table
+  useEffect(() => {
+    if (selectedCompany && paymentData.length > 0) {
+      const updatedCompanyData = paymentData.find(
+        companyGroup => companyGroup.company_id === selectedCompany.company_id
+      );
+      
+      if (updatedCompanyData) {
+        console.log('[SYNC] Updated selectedCompany with fresh payments:', updatedCompanyData.payments.length);
+        setSelectedCompany(updatedCompanyData);
+      }
+    }
+  }, [paymentData, selectedCompany?.company_id]);
+
   const fetchPaymentData = async () => {
     try {
       setLoading(true);
@@ -117,37 +159,51 @@ export default function PaymentAdminPage() {
       console.log('Payments length:', payments.length);
 
       if (payments && payments.length > 0) {
+        // Group payments by company_id
         const groupedByCompany = {};
 
         payments.forEach(payment => {
-          if (!groupedByCompany[payment.company_id]) {
-            groupedByCompany[payment.company_id] = {
-              company_id: payment.company_id,
+          const companyId = payment.company_id;
+          
+          if (!groupedByCompany[companyId]) {
+            groupedByCompany[companyId] = {
+              company_id: companyId,
               payments: [],
             };
           }
-          groupedByCompany[payment.company_id].payments.push(payment);
+          
+          groupedByCompany[companyId].payments.push(payment);
         });
 
+        console.log('[FETCH] Grouped companies:', Object.keys(groupedByCompany).length);
+
+        // Fetch company details and build final data structure
         const companiesData = await Promise.all(
           Object.values(groupedByCompany).map(async (companyGroup) => {
             try {
               const companyResponse = await companyService.get(companyGroup.company_id);
               const company = companyResponse.data || companyResponse;
-              return {
-                ...companyGroup,
+              
+              const finalGroup = {
+                company_id: companyGroup.company_id,
                 company: company,
+                payments: companyGroup.payments, // Ensure payments are included
               };
+              
+              console.log('[FETCH] Company:', company.name, '- Payments:', companyGroup.payments.length);
+              return finalGroup;
             } catch (err) {
               console.error(`Error fetching company ${companyGroup.company_id}:`, err);
               return {
-                ...companyGroup,
+                company_id: companyGroup.company_id,
                 company: { id: companyGroup.company_id, name: 'Unknown Company' },
+                payments: companyGroup.payments,
               };
             }
           })
         );
 
+        console.log('[FETCH] Final grouped data ready, updating state with', companiesData.length, 'company groups');
         setPaymentData(companiesData);
       } else {
         console.log('No payments found or invalid response structure');
@@ -493,6 +549,165 @@ export default function PaymentAdminPage() {
 
   const handleEditAuto = (auto) => {
     console.log('Edit auto:', auto);
+  };
+
+  // Company Payment Edit Handler
+  const handleEditCompanyPayment = (paymentGroupOrSinglePayment) => {
+    console.log('[EDIT] Opening edit modal for payment:', paymentGroupOrSinglePayment);
+    
+    // Check if we received an array (group) or single payment
+    let paymentsGroup = Array.isArray(paymentGroupOrSinglePayment) ? paymentGroupOrSinglePayment : [paymentGroupOrSinglePayment];
+    let firstPayment = paymentsGroup[0];
+    let autosCount = paymentsGroup.length;
+    
+    if (firstPayment) {
+      // Store the full payment object and group info
+      setEditingCompanyPayment({
+        ...firstPayment,
+        _groupSize: autosCount, // Store group size for display
+        _paymentsGroup: paymentsGroup, // Store full group for save operation
+        _groupTotal: paymentsGroup.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0) // Store group total
+      });
+      
+      // Extract actual values
+      const costPerDay = firstPayment.cost_per_auto || firstPayment.cost_per_day || 0;
+      const daysRequired = firstPayment.total_days || 0;
+      
+      console.log('[EDIT] Extracted values:', {
+        autos: autosCount,
+        days: daysRequired,
+        costPerDay: costPerDay,
+      });
+      
+      setEditCompanyPaymentData({
+        cost_per_auto_per_day: costPerDay,
+        notes: firstPayment.notes || '',
+      });
+      setShowCompanyPaymentEditModal(true);
+      setCompanyPaymentMenuAnchor(null);
+      setSelectedCompanyPayment(null);
+    }
+  };
+
+  // Save Company Payment Edit
+  const handleSaveCompanyPaymentEdit = async (e) => {
+    e.preventDefault();
+
+    if (!editCompanyPaymentData.cost_per_auto_per_day) {
+      setError('Cost per auto per day is required');
+      return;
+    }
+
+    try {
+      setCompanyPaymentEditLoading(true);
+      setError('');
+
+      // Get the autos and days from the payment
+      const daysRequired = editingCompanyPayment.total_days || 0;
+      const newCostPerDay = parseFloat(editCompanyPaymentData.cost_per_auto_per_day);
+
+      // CORRECT: Each payment row = 1 auto, so total_cost = days × cost_per_auto
+      // NOT: autos × days × cost_per_auto (that was wrong)
+      const newTotalCost = daysRequired * newCostPerDay;
+
+      // Get all payment IDs in the group
+      const paymentsToUpdate = editingCompanyPayment._paymentsGroup || [editingCompanyPayment];
+      const paymentIds = paymentsToUpdate.map(p => p.id);
+
+      console.log('[EDIT-SAVE] Saving', paymentIds.length, 'payments with:', {
+        cost_per_auto: newCostPerDay,
+        total_cost: newTotalCost,
+        days: daysRequired,
+      });
+
+      // Call API to update each payment in the group
+      for (const paymentId of paymentIds) {
+        await paymentService.update(paymentId, {
+          cost_per_auto: newCostPerDay,
+          total_cost: newTotalCost,
+          notes: editCompanyPaymentData.notes,
+        });
+      }
+
+      console.log('[EDIT-SAVE] ✓ All payments updated in backend');
+      
+      // Close modal immediately
+      setShowCompanyPaymentEditModal(false);
+      setEditingCompanyPayment(null);
+      setEditCompanyPaymentData({});
+      setSuccess('Payment updated successfully!');
+      
+      // Refresh ALL payment data from backend to rebuild grouped state
+      console.log('[EDIT-SAVE] Fetching fresh payment data to update UI');
+      await fetchPaymentData();
+      
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('[EDIT-SAVE] Error updating payment:', err);
+      setError(err.response?.data?.error || 'Failed to update payment');
+    } finally {
+      setCompanyPaymentEditLoading(false);
+    }
+  };
+
+  // Delete Company Payment Handler
+  const handleConfirmDeleteCompanyPayment = (paymentGroupOrSinglePayment) => {
+    // Check if we received an array (group) or single payment
+    let paymentsGroup = Array.isArray(paymentGroupOrSinglePayment) ? paymentGroupOrSinglePayment : [paymentGroupOrSinglePayment];
+    
+    if (paymentsGroup.length > 0) {
+      // Store the entire group with calculated total
+      const groupTotal = paymentsGroup.reduce((sum, p) => sum + (parseFloat(p.total_cost) || 0), 0);
+      setDeleteCompanyPaymentConfirm({
+        _paymentsGroup: paymentsGroup,
+        _groupTotal: groupTotal,
+        _groupSize: paymentsGroup.length
+      });
+      setCompanyPaymentMenuAnchor(null);
+      setSelectedCompanyPayment(null);
+    }
+  };
+
+  // Execute Delete Company Payment
+  const handleDeleteCompanyPaymentConfirmed = async () => {
+    try {
+      setDeleteLoading(true);
+      const paymentsToDelete = deleteCompanyPaymentConfirm._paymentsGroup || [];
+
+      console.log('[DELETE] Starting deletion of group with payments:', paymentsToDelete.map(p => p.id));
+
+      // Get all payment IDs to delete
+      const paymentIdsToDelete = paymentsToDelete.map(p => p.id);
+
+      // Call API to delete all payments in the group
+      console.log('[DELETE] Calling API DELETE for', paymentIdsToDelete.length, 'payments');
+      for (const paymentId of paymentIdsToDelete) {
+        await paymentService.delete(paymentId);
+        console.log('[DELETE] ✓ Deleted payment:', paymentId);
+      }
+      console.log('[DELETE] ✓ All payments deleted from backend');
+
+      // Close confirm dialog immediately
+      setDeleteCompanyPaymentConfirm(null);
+      setError('');
+      setSuccess('Payment(s) deleted successfully!');
+      
+      // Refresh ALL payment data from backend to rebuild grouped state
+      console.log('[DELETE] Fetching fresh payment data to update UI');
+      await fetchPaymentData();
+      
+      // Delay success message hide
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('[DELETE] ✗ Error deleting payment:', err);
+      setError(err.response?.data?.error || 'Failed to delete payment');
+      
+      // On error, refresh data to restore the payment
+      console.log('[DELETE] Refreshing data after error to restore payment');
+      await fetchPaymentData();
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const calculateCompanyTotal = (payments) => {
@@ -898,19 +1113,22 @@ export default function PaymentAdminPage() {
                           <td className="px-4 py-3 text-gray-700 font-medium">{area}</td>
                           {!isSelectMode && (
                             <td className="px-4 py-3 text-center">
-                              <div className="relative" ref={menuRef}>
+                              <div className="relative">
                                 <button
-                                  onClick={() => setOpenMenuKey(openMenuKey === key ? null : key)}
+                                  onClick={() => {
+                                    setCompanyPaymentMenuAnchor(companyPaymentMenuAnchor === paymentsForGroup[0].id ? null : paymentsForGroup[0].id);
+                                    setSelectedCompanyPayment(companyPaymentMenuAnchor === paymentsForGroup[0].id ? null : paymentsForGroup[0]);
+                                  }}
                                   className="text-gray-600 hover:text-gray-800 font-bold text-lg"
+                                  title="Actions"
                                 >
                                   ⋮
                                 </button>
-                                {openMenuKey === key && (
-                                  <div className="absolute -right-32 top-0 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                                {companyPaymentMenuAnchor === paymentsForGroup[0].id && (
+                                  <div className="absolute right-full top-0 mr-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="menu">
                                     <button
                                       onClick={() => {
-                                        alert('Edit functionality to be implemented');
-                                        setOpenMenuKey(null);
+                                        handleEditCompanyPayment(paymentsForGroup);
                                       }}
                                       className="block w-full text-left px-4 py-2 text-green-600 hover:bg-green-50 text-sm border-b"
                                     >
@@ -918,7 +1136,7 @@ export default function PaymentAdminPage() {
                                     </button>
                                     <button
                                       onClick={() => {
-                                        handleDeletePayment(key);
+                                        handleConfirmDeleteCompanyPayment(paymentsForGroup[0]);
                                       }}
                                       className="block w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 text-sm"
                                     >
@@ -987,8 +1205,8 @@ export default function PaymentAdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedPaymentGroup.map((payment, idx) => (
-                      <tr key={`${payment.id}-${idx}`} className="border-b border-gray-200 hover:bg-gray-50">
+                    {selectedPaymentGroup.map((payment) => (
+                      <tr key={payment.id} className="border-b border-gray-200 hover:bg-gray-50">
                         <td className="px-4 py-3 font-semibold text-gray-900">{payment.auto_no || 'N/A'}</td>
                         <td className="px-4 py-3 text-gray-700">{payment.owner_name || 'N/A'}</td>
                         <td className="px-4 py-3 text-gray-700">{payment.area_name || 'Unassigned'}</td>
@@ -1256,16 +1474,17 @@ export default function PaymentAdminPage() {
                             </thead>
                             <tbody className="divide-y">
                               {payments.map((payment) => {
-                                const handleRowDoubleClick = () => {
+                                const handlePaymentRowAction = (paymentData) => {
+                                  console.log("Payment action triggered:", paymentData);
                                   if (onDoubleClickAction === 'edit') {
-                                    handleEditAutoPayment(payment, tableSource);
+                                    handleEditAutoPayment(paymentData, tableSource);
                                   } else {
-                                    handleViewAutoPaymentDetails(payment, tableSource);
+                                    handleViewAutoPaymentDetails(paymentData, tableSource);
                                   }
                                 };
 
                                 return (
-                                  <tr key={payment.id} className="hover:bg-gray-50 cursor-pointer" onDoubleClick={handleRowDoubleClick}>
+                                  <tr key={payment.id} className="hover:bg-gray-50 cursor-pointer" onDoubleClick={() => handlePaymentRowAction(payment)}>
                                     <td className="px-6 py-4 text-sm font-semibold text-gray-900">
                                       {payment.auto_no || 'N/A'}
                                     </td>
@@ -1325,11 +1544,12 @@ export default function PaymentAdminPage() {
                                             ⋮
                                           </button>
                                           {openMenuId === payment.id && (
-                                            <div className="absolute -left-32 bottom-full mb-2 w-40 bg-white border border-gray-200 rounded shadow-lg z-50">
+                                            <div className="absolute -left-32 bottom-full mb-2 w-40 bg-white border border-gray-200 rounded shadow-lg z-50" role="menu">
                                               <button
-                                                onClick={() => {
-                                                  console.log('✏️ Edit button clicked');
-                                                  handleEditAutoPayment(payment);
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  console.log('✏️ Edit button clicked for payment:', payment.id);
+                                                  handlePaymentRowAction(payment);
                                                   setOpenMenuId(null);
                                                 }}
                                                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -1730,6 +1950,158 @@ export default function PaymentAdminPage() {
                   </form>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ===== COMPANY PAYMENT EDIT MODAL ===== */}
+          {showCompanyPaymentEditModal && editingCompanyPayment && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <Card className="w-full max-w-md">
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Payment</h2>
+
+                  {error && (
+                    <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                      {error}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSaveCompanyPaymentEdit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Autos Assigned
+                        </label>
+                        <input
+                          type="number"
+                          disabled
+                          value={editingCompanyPayment._groupSize || 0}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 font-semibold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Days Required
+                        </label>
+                        <input
+                          type="number"
+                          disabled
+                          value={editingCompanyPayment.total_days || 0}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Cost Per Auto Per Day (₹) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editCompanyPaymentData.cost_per_auto_per_day || ''}
+                        onChange={(e) => setEditCompanyPaymentData({ ...editCompanyPaymentData, cost_per_auto_per_day: parseFloat(e.target.value) || '' })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                      <p className="text-xs text-gray-600 font-semibold mb-2">Calculated Total</p>
+                      <p className="text-lg font-bold text-blue-600">
+                        ₹{(
+                          (editingCompanyPayment._groupSize || 0) *
+                          (editingCompanyPayment.total_days || 0) *
+                          (editCompanyPaymentData.cost_per_auto_per_day || 0)
+                        ).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {editingCompanyPayment._groupSize || 0} autos × {editingCompanyPayment.total_days || 0} days × ₹{editCompanyPaymentData.cost_per_auto_per_day || 0}/day
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Notes
+                      </label>
+                      <textarea
+                        value={editCompanyPaymentData.notes || ''}
+                        onChange={(e) => setEditCompanyPaymentData({ ...editCompanyPaymentData, notes: e.target.value })}
+                        placeholder="Add any notes..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        rows="3"
+                      />
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCompanyPaymentEditModal(false);
+                          setEditingCompanyPayment(null);
+                          setEditCompanyPaymentData({});
+                          setError('');
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={companyPaymentEditLoading || !editCompanyPaymentData.cost_per_auto_per_day}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {companyPaymentEditLoading ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* ===== COMPANY PAYMENT DELETE CONFIRMATION ===== */}
+          {deleteCompanyPaymentConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <Card className="w-full max-w-md">
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Delete Payment</h2>
+                  
+                  {error && (
+                    <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                      ⚠️ {error}
+                    </div>
+                  )}
+                  
+                  <p className="text-gray-700 mb-6">
+                    Are you sure you want to delete this payment record? {deleteCompanyPaymentConfirm._groupSize > 1 && <span>({deleteCompanyPaymentConfirm._groupSize} autos)</span>}<br />
+                    <strong className="block mt-2">Amount: ₹{parseFloat(deleteCompanyPaymentConfirm._groupTotal || 0).toLocaleString('en-IN')}</strong>
+                    This action cannot be undone.
+                  </p>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setDeleteCompanyPaymentConfirm(null);
+                        setError('');
+                      }}
+                      disabled={deleteLoading}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDeleteCompanyPaymentConfirmed}
+                      disabled={deleteLoading}
+                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deleteLoading ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              </Card>
             </div>
           )}
         </div>

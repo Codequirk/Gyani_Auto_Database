@@ -24,8 +24,8 @@ async function dualAuthMiddleware(req, res, next) {
 
     // Check token type
     if (decoded.type === 'company') {
-      // Company token
-      const company = await Company.findById(decoded.id);
+      // Company token - use company_id from token
+      const company = await Company.findById(decoded.company_id);
       if (!company) {
         return res.status(401).json({ error: 'Company not found - please login again' });
       }

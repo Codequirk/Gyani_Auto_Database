@@ -132,31 +132,31 @@ router.post('/upload-image', autoAuthMiddleware, upload.single('image'), async (
       }
     }
 
-    // Calculate week number
-    const firstDay = new Date(now.getFullYear(), 0, 1);
-    const pastDaysOfYear = (now - firstDay) / 86400000;
-    const weekNumber = Math.ceil((pastDaysOfYear + firstDay.getDay() + 1) / 7);
+    // Calculate week number using ISO week (consistent with backend)
+    const imageUtils = require('../utils/imageManagement');
+    const weekNumber = imageUtils.getCurrentWeekNumber();
+    const year = imageUtils.getCurrentYear();
 
-    // Update auto with new image
+    // Update auto with new image (NO image_status - section computed dynamically)
     await db('autos')
       .where({ id: auto.id })
       .update({
         image_url: imageUrl,
         image_upload_date: now,
         image_week_number: weekNumber,
-        image_year: now.getFullYear(),
-        image_status: 'UPLOADED',
+        image_year: year,
+        // ❌ NO image_status - sections computed dynamically
         updated_at: now,
       });
 
-    console.log('[AUTO-PORTAL] ✓ Auto updated with image');
+    console.log('[AUTO-PORTAL] ✓ Auto updated with image (Week ${weekNumber}/${year})');
 
     res.json({
       message: 'Image uploaded successfully',
       image_url: getFullImageUrl(imageUrl), // ✅ Return full URL to frontend
       image_upload_date: now,
       image_week_number: weekNumber,
-      image_year: now.getFullYear(),
+      image_year: year,
     });
   } catch (error) {
     console.error('[AUTO-PORTAL] Upload error:', error);

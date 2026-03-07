@@ -223,6 +223,11 @@ exports.getCompanyPayments = async (req, res, next) => {
   try {
     const { company_id } = req.params;
 
+    // Authorization check: company can only view their own payments
+    if (req.auth_type === 'company' && req.company_id !== company_id) {
+      return res.status(403).json({ error: 'Unauthorized - you can only view your own payments' });
+    }
+
     const payments = await Payment.findByCompanyId(company_id);
     
     res.json(payments);

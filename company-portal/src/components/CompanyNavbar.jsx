@@ -24,6 +24,9 @@ const CompanyNavbar = () => {
               <Link to="/dashboard" className="hover:bg-teal-700 px-3 py-2 rounded">
                 Dashboard
               </Link>
+              <Link to="/payment-details" className="hover:bg-teal-700 px-3 py-2 rounded">
+                Payment Details
+              </Link>
             </div>
           </div>
 

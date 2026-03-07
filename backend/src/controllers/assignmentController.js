@@ -475,14 +475,16 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
     
     // For each auto:
     // 1. Get ALL existing assignments (except COMPLETED - keep those)
-    // 2. Delete those assignments and their payments
-    // 3. Create new assignment
-    // 4. Create new payment if cost_per_day provided
+    // 2. Delete advertisement images (since auto is being re-assigned to new company)
+    // 3. Delete those assignments and their payments
+    // 4. Create new assignment
+    // 5. Create new payment if cost_per_day provided
     
     const deletedAssignments = [];
     const deletedPayments = [];
     const newAssignments = [];
     const newPayments = [];
+    const AutoAdvertisement = require('../models/AutoAdvertisement');
 
     for (const autoId of validAutoIds) {
       // Get all non-COMPLETED assignments (ACTIVE, PREBOOKED, etc.)
@@ -492,15 +494,35 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
       
       console.log(`[BULK UPDATE] Auto ${autoId}: Found ${existingAssignments.length} non-completed assignments to delete`);
 
-      // Delete payments for these assignments
-      for (const assignment of existingAssignments) {
-        const payments = await db('payments').where({ assignment_id: assignment.id });
-        for (const payment of payments) {
-          await db('payments').where({ id: payment.id }).del();
-          deletedPayments.push(payment);
-          console.log(`[BULK UPDATE] Deleted payment ${payment.id} for assignment ${assignment.id}`);
-        }
+      // Delete advertisement images for this auto (since it's being re-assigned)
+      try {
+        const deletedAds = await AutoAdvertisement.deleteByAuto(autoId);
+        console.log(`[BULK UPDATE] Deleted ${deletedAds ? deletedAds.length : 0} advertisement image(s) for auto ${autoId}`);
+      } catch (adError) {
+        console.warn(`[BULK UPDATE] Warning: Could not delete advertisements for auto ${autoId}:`, adError.message);
       }
+
+      // Clear the auto's image_url field (remove advertisement image from autos table)
+      try {
+        await db('autos')
+          .where({ id: autoId })
+          .update({
+            image_url: null,
+            image_upload_date: null,
+            image_week_number: null,
+            image_year: null,
+            updated_at: new Date(),
+          });
+        console.log(`[BULK UPDATE] Cleared image_url for auto ${autoId}`);
+      } catch (imageError) {
+        console.warn(`[BULK UPDATE] Warning: Could not clear image for auto ${autoId}:`, imageError.message);
+      }
+
+      // Delete payments for this auto (by auto_id, not assignment_id)
+      const deletedPaymentsResult = await db('payments')
+        .where({ auto_id: autoId })
+        .del();
+      console.log(`[BULK UPDATE] Deleted ${deletedPaymentsResult} payments for auto ${autoId}`);
 
       // Delete these assignments
       if (existingAssignments.length > 0) {
@@ -529,26 +551,22 @@ exports.bulkUpdateAssignments = async (req, res, next) => {
       // Create NEW payment if cost_per_day provided
       if (cost_per_day !== undefined && cost_per_day !== null && cost_per_day > 0) {
         const auto = await require('../models/Auto').findById(autoId);
-        if (auto && auto.area_id) {
-          const area = await Area.findByIdAsync(auto.area_id);
-          const monthlyPaymentAmount = cost_per_day * totalDays;
+        
+        const newPayment = await db('payments').insert({
+          id: require('uuid').v4(),
+          auto_id: autoId,
+          company_id: company_id,
+          ticket_id: newAssignment[0].id,
+          cost_per_day: parseFloat(cost_per_day),
+          total_days: totalDays,
+          total_cost: parseFloat(cost_per_day) * totalDays,
+          payment_status: 'PENDING',
+          created_at: new Date(),
+          updated_at: new Date(),
+        }).returning('*');
 
-          const newPayment = await db('payments').insert({
-            id: require('uuid').v4(),
-            auto_id: autoId,
-            company_id: company_id,
-            assignment_id: newAssignment[0].id,
-            amount: monthlyPaymentAmount,
-            area_id: auto.area_id,
-            status: 'PENDING',
-            payment_date: new Date(),
-            created_at: new Date(),
-            updated_at: new Date(),
-          }).returning('*');
-
-          newPayments.push(newPayment[0]);
-          console.log(`[BULK UPDATE] Created new payment ${newPayment[0].id} for auto ${autoId}`);
-        }
+        newPayments.push(newPayment[0]);
+        console.log(`[BULK UPDATE] Created new payment ${newPayment[0].id} for auto ${autoId}`);
       }
     }
 

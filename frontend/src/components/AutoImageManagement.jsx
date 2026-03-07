@@ -285,7 +285,7 @@ const AutoImageManagement = () => {
                 console.log(`[Section] ${sectionName} - ${auto.auto_no}:`, { 
                   id: auto.id, 
                   image_url: auto.image_url,
-                  image_upload_date: auto.image_upload_date
+                  uploadedDate: auto.uploadedDate
                 });
                 return (
                 <div
@@ -304,38 +304,15 @@ const AutoImageManagement = () => {
                       <p className="text-sm text-gray-600 mb-1">Owner: {auto.owner_name}</p>
                       
                       {/* Image Details */}
-                      {auto.image_upload_date && (
+                      {auto.uploadedDate && (
                         <div className="text-xs text-gray-500 mb-3">
-                          <p>Uploaded: {new Date(auto.image_upload_date).toLocaleDateString('en-IN')}</p>
-                          <p>Week {auto.image_week_number}/{auto.image_year}</p>
+                          <p>Uploaded: {auto.uploadedDate}</p>
+                          <p>Week {auto.weekNumber}/{auto.year}</p>
                         </div>
                       )}
 
-                      {/* Image Preview - Hidden in UPLOADED section, only shown on double-click */}
-                      {auto.image_url && sectionName !== 'UPLOADED' && (
-                        <div className="mb-3">
-                          <img
-                            src={getFullImageUrl(auto.image_url)}
-                            alt={auto.auto_no}
-                            className="max-w-xs h-auto rounded border border-gray-300 cursor-pointer hover:opacity-80 transition"
-                            onDoubleClick={() => {
-                              console.log(`[Double-click] Opening image for ${auto.auto_no}`);
-                              setFullViewImage(auto);
-                            }}
-                            title="Double-click to view full size"
-                            onError={(e) => {
-                              console.error('[Image Error] Failed to load:', e);
-                              e.target.style.display = 'none';
-                            }}
-                            onLoad={() => {
-                              console.log(`[Image Load] Image loaded for ${auto.auto_no}`);
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {/* For UPLOADED section, show a "Click to view" button instead */}
-                      {auto.image_url && sectionName === 'UPLOADED' && (
+                      {/* Preview button for UPLOADED and BUFFER sections */}
+                      {auto.image_url && (sectionName === 'UPLOADED' || sectionName === 'BUFFER') && (
                         <div className="mb-3">
                           <button
                             onClick={() => {
@@ -343,18 +320,30 @@ const AutoImageManagement = () => {
                                 auto_no: auto.auto_no,
                                 id: auto.id,
                                 image_url: auto.image_url,
-                                image_upload_date: auto.image_upload_date,
-                                image_week_number: auto.image_week_number,
-                                image_year: auto.image_year
+                                uploadedDate: auto.uploadedDate,
+                                weekNumber: auto.weekNumber,
+                                year: auto.year,
+                                section: sectionName
                               });
                               setImageLoadFailed(false);
                               setFullViewImage(auto);
                             }}
-                            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded font-medium transition"
+                            className={`px-4 py-2 rounded font-medium transition ${
+                              sectionName === 'UPLOADED' 
+                                ? 'bg-green-500 hover:bg-green-600' 
+                                : 'bg-yellow-500 hover:bg-yellow-600'
+                            } text-white`}
                             title="Click to view image"
                           >
                             👁️ View Image
                           </button>
+                        </div>
+                      )}
+                      
+                      {/* MISSING section: No image preview, only show upload button */}
+                      {!auto.image_url && sectionName === 'MISSING' && (
+                        <div className="mb-3 text-sm text-gray-500">
+                          No image available
                         </div>
                       )}
                     </div>
@@ -531,10 +520,10 @@ const AutoImageManagement = () => {
             </div>
 
             {/* Footer */}
-            {fullViewImage.image_upload_date && (
+            {fullViewImage.uploadedDate && (
               <div className="border-t p-4 text-sm text-gray-600 bg-gray-50">
-                <p>📅 Uploaded: {new Date(fullViewImage.image_upload_date).toLocaleDateString('en-IN')}</p>
-                <p>📆 Week {fullViewImage.image_week_number}/{fullViewImage.image_year}</p>
+                <p>📅 Uploaded: {fullViewImage.uploadedDate}</p>
+                <p>📆 Week {fullViewImage.weekNumber}/{fullViewImage.year}</p>
               </div>
             )}
           </div>
@@ -546,10 +535,11 @@ const AutoImageManagement = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
         <p className="font-semibold mb-2">📋 How it works:</p>
         <ul className="list-disc list-inside space-y-1">
-          <li><strong>MISSING Section:</strong> Upload new image or it will auto-delete after Tuesday deadline</li>
-          <li><strong>BUFFER Section:</strong> Previous week image still visible. Upload new one to replace (Sun-Tue window)</li>
-          <li><strong>UPLOADED Section:</strong> Current week image. Valid until next Sunday when it moves to buffer</li>
-          <li>System automatically manages section transitions on Sunday midnight and Tuesday 23:59</li>
+          <li><strong>MISSING Section:</strong> No image or expired. Upload new image immediately or it will auto-delete after Tuesday deadline</li>
+          <li><strong>BUFFER Section:</strong> Previous week image. Click "View Image" button to preview. Upload new image to replace (Sun-Tue window)</li>
+          <li><strong>UPLOADED Section:</strong> Current week image. Click "View Image" button to preview. Valid until next Sunday when it moves to buffer</li>
+          <li>❌ Inactive/Deleted autos: Do not appear in image management</li>
+          <li>⏰ System automatically manages section transitions on Sunday midnight and Tuesday 23:59</li>
         </ul>
       </div>
     </div>

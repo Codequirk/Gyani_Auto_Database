@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const companyTicketController = require('../controllers/companyTicketController');
 const authMiddleware = require('../middleware/authMiddleware');
-const companyAuthMiddleware = require('../middleware/authMiddleware');
+const companyAuthMiddleware = require('../middleware/companyAuthMiddleware');
 
 // Admin endpoints - require admin auth (MUST be before generic :id routes)
 router.get('/admin/pending', authMiddleware, companyTicketController.getPendingTickets);
@@ -11,9 +11,12 @@ router.get('/admin/:id/available-autos', authMiddleware, companyTicketController
 router.patch('/admin/:id/approve', authMiddleware, companyTicketController.approveTicket);
 router.patch('/admin/:id/reject', authMiddleware, companyTicketController.rejectTicket);
 router.patch('/admin/:id', authMiddleware, companyTicketController.updateTicket);
+router.delete('/admin/delete-selected', authMiddleware, companyTicketController.deleteSelectedTickets);
+router.delete('/admin/delete-all', authMiddleware, companyTicketController.deleteAllTickets);
 
 // Company endpoints - require company auth
 router.post('/', companyAuthMiddleware, companyTicketController.createTicket);
+router.patch('/:id/dismiss', companyAuthMiddleware, companyTicketController.dismissTicket);
 
 // Get company tickets - requires company auth
 router.get('/company/:company_id', companyAuthMiddleware, companyTicketController.getCompanyTickets);

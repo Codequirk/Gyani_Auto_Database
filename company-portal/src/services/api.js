@@ -234,4 +234,12 @@ export const companyAuthService = {
   },
 };
 
+// Payment Service
+export const paymentService = {
+  getAllPayments: () => api.get('/payments/all'),
+  getCompanyPayments: (companyId) => api.get(`/payments/company/${companyId}`),
+  getTicketPayments: (ticketId) => api.get(`/payments/ticket/${ticketId}`),
+  getPaymentsByStatus: (status) => api.get(`/payments/status/${status}`),
+};
+
 export default api;

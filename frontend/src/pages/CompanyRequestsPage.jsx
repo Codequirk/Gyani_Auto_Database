@@ -38,9 +38,35 @@ const CompanyRequestsPage = () => {
   const [detailsModalPayments, setDetailsModalPayments] = useState([]);
   const [detailsModalPaymentLoading, setDetailsModalPaymentLoading] = useState(false);
 
+  // Selection and deletion states
+  const [selectedTickets, setSelectedTickets] = useState(new Set());
+  const [showActionMenu, setShowActionMenu] = useState(null); // null or 'APPROVED'/'REJECTED'
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null); // null, 'selected', or 'all'
+  const [deleteStatus, setDeleteStatus] = useState(''); // APPROVED or REJECTED
+  const [deletingTickets, setDeletingTickets] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false); // true when user clicks 'Delete Selected Entries'
+
   useEffect(() => {
     fetchRequests();
   }, [filterStatus]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      // Check if click is outside the menu
+      const menuButton = e.target.closest('button[title="Actions"]');
+      const menuContainer = e.target.closest('[class*="absolute"]');
+      
+      if (!menuButton && !menuContainer) {
+        setShowActionMenu(null);
+      }
+    };
+
+    if (showActionMenu) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showActionMenu]);
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -106,9 +132,9 @@ const CompanyRequestsPage = () => {
         
         console.log('[REQUESTS] Fetched all tickets:', tickets.length);
         
-        // Filter by ticket status matching the current filter
-        let ticketStatusFilter = filterStatus; // PENDING, APPROVED, REJECTED map directly
-        tickets = tickets.filter(r => r.ticket_status === ticketStatusFilter);
+        // Filter by ticket status matching the current filter (case-insensitive)
+        let ticketStatusFilter = filterStatus.toUpperCase(); // PENDING, APPROVED, REJECTED
+        tickets = tickets.filter(r => r.ticket_status?.toUpperCase() === ticketStatusFilter);
         
         console.log(`[REQUESTS] Filtered tickets for status ${ticketStatusFilter}:`, tickets.length);
         
@@ -120,7 +146,18 @@ const CompanyRequestsPage = () => {
         // Continue with just company registrations
       }
 
+      // Sort by created_at (most recent first) - chronological order only
+      allRequests.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.requested_at || a.start_date || 0);
+        const dateB = new Date(b.created_at || b.requested_at || b.start_date || 0);
+        return dateB - dateA; // Descending order (most recent first)
+      });
+
       setRequests(allRequests);
+      // Exit selection mode when fetching new data
+      setSelectionMode(false);
+      setSelectedTickets(new Set());
+      setShowActionMenu(null);
     } catch (err) {
       console.error('[REQUESTS] Error:', err);
       setError(err.response?.data?.error || 'Failed to load requests');
@@ -451,6 +488,76 @@ const CompanyRequestsPage = () => {
     }
   };
 
+  // Delete handler functions
+  const handleSelectTicket = (ticketId) => {
+    // Only allow selection when in selection mode
+    if (!selectionMode) return;
+    
+    const newSelected = new Set(selectedTickets);
+    if (newSelected.has(ticketId)) {
+      newSelected.delete(ticketId);
+    } else {
+      newSelected.add(ticketId);
+    }
+    setSelectedTickets(newSelected);
+  };
+
+  const handleEnterSelectionMode = () => {
+    setSelectionMode(true);
+    setShowActionMenu(null);
+  };
+
+  const handleExitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedTickets(new Set());
+    setShowActionMenu(null);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedTickets.size === 0) {
+      alert('Please select at least one request to delete');
+      return;
+    }
+
+    setDeletingTickets(true);
+    try {
+      const ticketIds = Array.from(selectedTickets);
+      await api.delete('/company-tickets/admin/delete-selected', {
+        data: { ticket_ids: ticketIds }
+      });
+      alert(`${selectedTickets.size} request(s) deleted successfully`);
+      setSelectedTickets(new Set());
+      setShowDeleteConfirm(null);
+      setShowActionMenu(null);
+      setSelectionMode(false);
+      await fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete requests');
+    } finally {
+      setDeletingTickets(false);
+    }
+  };
+
+  const handleDeleteAll = async (status) => {
+    setDeletingTickets(true);
+    try {
+      await api.delete('/company-tickets/admin/delete-all', {
+        data: { status: status }
+      });
+      alert(`All ${status.toLowerCase()} requests deleted successfully`);
+      setSelectedTickets(new Set());
+      setShowDeleteConfirm(null);
+      setShowActionMenu(null);
+      setDeleteStatus('');
+      setSelectionMode(false);
+      await fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete requests');
+    } finally {
+      setDeletingTickets(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -468,16 +575,86 @@ const CompanyRequestsPage = () => {
 
         {/* Status Filter Buttons */}
         <div className="mb-6 p-4 rounded-lg bg-white border border-gray-200">
-          <div className="flex gap-2">
-            {['PENDING', 'APPROVED', 'REJECTED'].map((status) => (
-              <Button
-                key={status}
-                variant={filterStatus === status ? 'primary' : 'secondary'}
-                onClick={() => setFilterStatus(status)}
-              >
-                {status}
-              </Button>
-            ))}
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              {['PENDING', 'APPROVED', 'REJECTED'].map((status) => (
+                <Button
+                  key={status}
+                  variant={filterStatus === status ? 'primary' : 'secondary'}
+                  onClick={() => setFilterStatus(status)}
+                >
+                  {status}
+                </Button>
+              ))}
+            </div>
+            {/* 3-dot Menu for Delete Actions */}
+            {filterStatus !== 'PENDING' && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowActionMenu(showActionMenu === filterStatus ? null : filterStatus)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Actions"
+                >
+                  ⋮
+                </button>
+                {showActionMenu === filterStatus && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                    {/* Delete Selected Entries */}
+                    {!selectionMode ? (
+                      <button
+                        onClick={() => {
+                          handleEnterSelectionMode();
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-medium border-b border-gray-100 transition-colors"
+                        title="Click to enable selection mode"
+                      >
+                        Delete Selected Entries
+                      </button>
+                    ) : selectedTickets.size > 0 ? (
+                      <button
+                        onClick={() => {
+                          setShowDeleteConfirm('selected');
+                          setDeleteStatus(filterStatus);
+                          setShowActionMenu(null);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-medium border-b border-gray-100 transition-colors"
+                        title={`Delete ${selectedTickets.size} selected item(s)`}
+                      >
+                        Delete Selected ({selectedTickets.size})
+                      </button>
+                    ) : (
+                      <div className="w-full text-left px-4 py-2 text-gray-400 font-medium border-b border-gray-100">
+                        Selection Mode (0 selected)
+                      </div>
+                    )}
+                    
+                    {/* Delete All Entries */}
+                    <button
+                      onClick={() => {
+                        setShowDeleteConfirm('all');
+                        setDeleteStatus(filterStatus);
+                        setShowActionMenu(null);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 font-medium transition-colors"
+                    >
+                      Delete All Entries
+                    </button>
+                    
+                    {/* Exit Selection Mode (only shown when in selection mode) */}
+                    {selectionMode && (
+                      <button
+                        onClick={() => {
+                          handleExitSelectionMode();
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-600 font-medium border-t border-gray-100 transition-colors"
+                      >
+                        Cancel Selection
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -492,7 +669,17 @@ const CompanyRequestsPage = () => {
             <div className="space-y-4">
               {requests.map((request) => (
               <Card key={request.id} className="p-4 bg-white cursor-pointer hover:shadow-lg transition-shadow" onDoubleClick={() => handleViewDetails(request)}>
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-4">
+                  {/* Checkbox for deletion - only show in selection mode */}
+                  {selectionMode && filterStatus !== 'PENDING' && (
+                    <input
+                      type="checkbox"
+                      checked={selectedTickets.has(request.id)}
+                      onChange={() => handleSelectTicket(request.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1 w-5 h-5 cursor-pointer"
+                    />
+                  )}
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-lg font-semibold text-gray-900">
@@ -1303,6 +1490,66 @@ const CompanyRequestsPage = () => {
           </div>
         </div>
         )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteConfirm !== null && showDeleteConfirm !== false}
+        onClose={() => {
+          setShowDeleteConfirm(null);
+          setDeleteStatus('');
+        }}
+        title={showDeleteConfirm === 'all' ? 'Delete All Entries' : 'Confirm Deletion'}
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            {showDeleteConfirm === 'selected' ? (
+              <>
+                <p className="text-red-900 font-medium">
+                  Are you sure you want to delete the selected {selectedTickets.size} entr{selectedTickets.size === 1 ? 'y' : 'ies'}?
+                </p>
+                <p className="text-red-800 text-sm mt-2">
+                  This action cannot be undone. All data associated with the selected request(s) will be permanently deleted.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-red-900 font-medium">
+                  Are you sure you want to delete ALL entries in {deleteStatus} section?
+                </p>
+                <p className="text-red-800 text-sm mt-2">
+                  This action cannot be undone. All {deleteStatus.toLowerCase()} requests will be permanently deleted.
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button
+              onClick={() => {
+                setShowDeleteConfirm(null);
+                setDeleteStatus('');
+              }}
+              variant="secondary"
+              disabled={deletingTickets}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (showDeleteConfirm === 'selected') {
+                  handleDeleteSelected();
+                } else if (showDeleteConfirm === 'all') {
+                  handleDeleteAll(deleteStatus);
+                }
+              }}
+              variant="danger"
+              disabled={deletingTickets}
+            >
+              {deletingTickets ? 'Deleting...' : (showDeleteConfirm === 'all' ? 'Delete All' : 'Delete')}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
